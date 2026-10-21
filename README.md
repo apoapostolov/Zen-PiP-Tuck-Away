@@ -43,6 +43,14 @@ Across that strip sits a small badge with a chevron pointing back out, on a fain
 
 The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, written when the player closes, and uses the place the player came from whenever it closes while tucked. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
 
+## Pulling a tucked player out
+
+Dragging a tucked player into the screen frees it: it goes free exactly where it was let go, and it stays there. A drag **along** the edge does not free it, it re-anchors the strip where you dropped it, because sliding a strip up or down its own edge is not a request to untuck. A nudge of a few pixels is ignored for the same reason, and the release is decided by how far the player has come back in from its attached position, not by whether the window moved at all.
+
+This works from the strip and from a peek alike. A peeked player is a player whose window is out on the screen, so dragging it away from the edge is the same gesture; before this, a peeked drag was slid straight back under the pointer by the peek's own retract. The pointer usually leaves the player halfway through a drag, and a departure that happens while the player has been pulled out frees it rather than reeling it in.
+
+There is no separate switch for this. A tucked player you dragged somewhere is a player you wanted out, and the settings list is long enough already.
+
 ## Tucking by drag
 
 Drag the player so that any part of it is past a screen edge and the mod marks that edge with a thin line, placed on the screen edge itself rather than on the window's off-screen end. Move the pointer off the player and it tucks that way. A drag that ends with the pointer already past the player completes the same way, because the window simply stopped being under the pointer. The gesture reads the window's position rather than the drag itself, since a window drag belongs to the window manager and reports nothing to the page.

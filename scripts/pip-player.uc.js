@@ -659,6 +659,14 @@
     if (!peeked) {
       return;
     }
+    // Halfway through a drag the pointer usually leaves the player before the
+    // player leaves the edge. Leaving it out is right; sliding it back under
+    // the pointer is not.
+    if (pullFromEdge() > Math.max(DRIFT_PX, PULL_FREE)) {
+      reopenAfter = Date.now() + REVEAL_COOLDOWN;
+      releaseTuck();
+      return;
+    }
     reopenAfter = Date.now() + REVEAL_COOLDOWN;
     stopPeek();
     if (state === "tucked" && !document.fullscreenElement) {
@@ -797,31 +805,80 @@
    * for: a pointer still sitting on the strip whose hover state went missing,
    * and a window somebody else moved.
    */
+  const PULL_FREE = 24; // px pulled in from the attached position that frees the player
+
+  /**
+   * How far the player has been pulled in from its attached position, along the
+   * axis of the edge it is tucked against. Sliding along the edge leaves this
+   * at zero, which is what keeps a sideways drag tucked while a drag into the
+   * screen frees the player.
+   */
+  const pullFromEdge = () => {
+    if (state !== "tucked" || !spot) {
+      return 0;
+    }
+    const w = W();
+    const h = H();
+    if (!w || !h) {
+      return 0;
+    }
+    const [expectX, expectY] = peeked ? flushPos(spot) : tuckedPos(spot);
+    if (spot === "right") {
+      return expectX - window.screenX;
+    }
+    if (spot === "left") {
+      return window.screenX - expectX;
+    }
+    if (spot === "top") {
+      return window.screenY - expectY;
+    }
+    return expectY - window.screenY;
+  };
+
+  /**
+   * A tucked player dragged into the screen is not tucked any more: it goes free
+   * where it was let go, which is the whole point of pulling it out. The same
+   * routine runs whether it was dragged from the strip or from a peek, because
+   * both are just the window moving away from its attached position.
+   */
+  const releaseTuck = () => {
+    stopPeek();
+    state = "free";
+    spot = null;
+    root.removeAttribute("pip-tucked");
+    setArmed(null);
+    home = { x: window.screenX, y: window.screenY };
+    updateOverlay();
+    refreshSide();
+    reflectZiaButton();
+    return true;
+  };
+
   const watchTucked = () => {
     if (tuckedTimer) {
       return;
     }
     tuckedTimer = setInterval(() => {
-      if (state !== "tucked" || peeked || animating || revealing) {
+      if (state !== "tucked" || animating || revealing) {
         return;
       }
       if (Date.now() < settleUntil) {
         return;
       }
       // Somebody else moved the window: let go before anything else, or a
-      // pointer resting on it would drag it straight back.
-      const [x, y] = tuckedPos(spot);
-      if (Math.abs(window.screenX - x) > DRIFT_PX || Math.abs(window.screenY - y) > DRIFT_PX) {
-        stopPeek();
-        state = "free";
-        spot = null;
-        root.removeAttribute("pip-tucked");
-        home = { x: window.screenX, y: window.screenY };
+      // pointer resting on it would drag it straight back. A pull into the
+      // screen frees the player; a slide along the edge keeps it tucked where
+      // it now sits, because the attached position follows the drag.
+      if (pullFromEdge() > Math.max(DRIFT_PX, PULL_FREE)) {
+        releaseTuck();
+        return;
+      }
+      if (peeked) {
         return;
       }
       // A pointer that is still there should have the strip out, whether or not
-      // an enter event ever arrived. Same condition the poll retracts on, so the
-      // two can never disagree.
+      // an enter event ever arrived. Same condition the poll retracts on, so
+      // the two can never disagree.
       if (Date.now() >= reopenAfter && (hovering() || pointerNearEdge())) {
         reveal();
       }
