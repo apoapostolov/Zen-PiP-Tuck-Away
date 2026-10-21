@@ -436,6 +436,29 @@
   // so the room is added to the real thing rather than to a guess.
   let reserveBase = null;
 
+  /**
+   * The panel is embedded only while its own Zen window is the one in front.
+   *
+   * A docked panel is a window, and a window belongs to the widget the way a
+   * picture on a wall does: step outside the room and there is nothing to look
+   * at. The focus manager reports the player window when the pointer is on the
+   * panel itself, its own window while the browser is in use, and null once the
+   * application is in the background, which is the moment to hand the player
+   * back as a real picture-in-picture that floats over whatever comes next.
+   */
+  const panelBelongsInWidget = (win) => {
+    let active = null;
+    try {
+      active = Services.focus?.activeWindow ?? null;
+    } catch (err) {
+      return true; // cannot tell: leave it where it is
+    }
+    if (!active) {
+      return false;
+    }
+    return active === window || active === win;
+  };
+
   const releaseReserve = () => {
     reserveBase = null;
     try {
@@ -584,6 +607,17 @@
       }
       dockedWindow = null;
       releaseReserve();
+      return;
+    }
+    if (!panelBelongsInWidget(win)) {
+      if (api.isDocked?.()) {
+        api.undock?.();
+        trace("dock: out of the widget, this window is not in front");
+      }
+      dockedWindow = null;
+      if (reserveBase !== null) {
+        releaseReserve();
+      }
       return;
     }
     const card = cardForPlayer(win);
@@ -760,6 +794,26 @@
   /** The window lost focus: ask the tab in front for a player, once. */
   const onLeftZen = () => {
     if (floatedWindow && !floatedWindow.closed) {
+      return;
+    }
+    // A player may already be on screen, docked in the widget or tucked into an
+    // edge. Asking the tab again would open a second one on top of it, which
+    // reads as the browser "switching to normal picture-in-picture" the moment
+    // another application comes forward. Keep the player that is there, and keep
+    // it the one that folds away when the browser comes back.
+    const open = Services.wm.getMostRecentWindow("Toolkit:PictureInPicture");
+    if (open && !open.closed) {
+      const api = pipApi();
+      const browser = api?.weakWinToBrowser?.get?.(open) ?? null;
+      // Only a player the tab's own departure produced is this mod's to fold
+      // away. One the user asked for by hand stays theirs.
+      const automatic =
+        !!browser &&
+        (autoPipped.has(browser) || !!api?.weakAutoPipBrowserToParent?.has?.(browser));
+      if (automatic) {
+        floatedWindow = open;
+        trace("a player was already open; it is the one that folds away on return");
+      }
       return;
     }
     requestFromSelectedTab();

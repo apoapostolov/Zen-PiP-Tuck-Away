@@ -267,6 +267,11 @@ function mk(prefsIn = {}, opts = {}) {
           if (i >= 0) wwObservers.splice(i, 1);
         },
       },
+      focus: {
+        get activeWindow() {
+          return opts.frontWithApp === false ? null : window;
+        },
+      },
       wm: {
         getEnumerator: () => windows,
         getMostRecentWindow: (type) =>
@@ -380,6 +385,9 @@ function mk(prefsIn = {}, opts = {}) {
       });
     },
     barStyle: mediaBar.style,
+    setFront(on) {
+      opts.frontWithApp = on;
+    },
     weakWinToBrowser,
     weakAutoPipBrowserToParent,
     pipWindows,
@@ -861,6 +869,45 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   await tick();
   await tick();
   check("left alone", t.windows[0].closed, false);
+}
+
+// 23e. the panel leaves the widget when the application goes to the background
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const calls = [];
+  const undocks = [];
+  t.windows[0].__pipTuckAway = {
+    dock: (rect) => calls.push(rect),
+    undock: () => undocks.push(true),
+    isDocked: () => undocks.length === 0 && calls.length > 0,
+    aspect: () => 16 / 9,
+  };
+  await t.tick();
+  check("embedded while the browser is in front", calls.length >= 1, true);
+  t.setFront(false); // another application came forward
+  await t.tick();
+  check("and handed back as a real player", undocks.length, 1);
+  check("the room is given back", t.barStyle.props["--zen-media-collapsed-height"], undefined);
+  t.setFront(true); // the browser comes back
+  await t.tick();
+  check("it is embedded again", calls.length >= 2, true);
+  check("with the room made again", t.barStyle.props["--zen-media-collapsed-height"] !== undefined, true);
+}
+
+// 23f. a player that is already open is never doubled up
+{
+  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  t.pipWindows.push(t.windows[0]); // the platform's registry of player windows
+  const wgp = wgpFor(false, { selected: false }); // the tab's own departure opened it
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.emit("deactivate"); // another application comes forward
+  await tick();
+  check("no second player was asked for", t.launcherMessages.length, 0);
+  t.select(wgp.browser); // and back to the tab the video came from
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  await tick();
+  check("the player that was there folds away", t.windows[0].closed, true);
 }
 
 // 22. unload puts the original handler back

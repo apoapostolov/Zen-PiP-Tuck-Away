@@ -45,6 +45,8 @@ The room is real. Zen's media toolbar takes its height from `--zen-media-collaps
 
 The panel is a window, and that is the one honest limit: the playing video lives in the player's own browsing context and cannot be moved into a document. The only way to paint video inside the page is a frame mirror, which has no sound of its own and goes black on protected content. A docked window is the real video with the real audio, and nothing is reloaded, so playback never restarts. What the panel does not have is the player's own furniture: its control bar is built for a window and reads as a wall of buttons at panel size, so it is switched off while docked and the picture is the whole of it. A click still pauses and plays.
 
+The panel is embedded only while Zen is the window in front. A docked panel belongs to the widget the way a picture on a wall belongs to the room, so leaving Zen hands the player back as real picture-in-picture: the same window, at the place you last left it, floating over whatever comes next, with nothing reloaded and playback untouched. Coming back to Zen puts it in the widget again. That is also why leaving Zen no longer opens a second player: if one is already on screen, it is the one that pops out and the one that folds away when you return to the video's tab.
+
 The panel comes out when the card goes away, when the setting is off, and when you tuck it, and the toolbar's room is given back with it. With more than one playing tab the mod looks for the card whose title matches the video's tab, and otherwise uses the first card on screen.
 
 ## Going back to the tab
