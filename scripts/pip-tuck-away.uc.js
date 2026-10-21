@@ -67,9 +67,14 @@
   };
 
   const onKeyDown = (event) => {
-    // Ctrl+Shift+T, the chord this mod shipped with before the shortcut was
-    // ever taken outside the browser.
-    if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) {
+    // Ctrl+Alt+T. Not the browser's reopen-closed-tab chord, which this mod has
+    // no business claiming, and not one a page is likely to want.
+    if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) {
+      return;
+    }
+    // AltGr reports itself as ctrl+alt on most layouts, which would hand this
+    // mod a key the keyboard layout owns.
+    if (event.getModifierState?.("AltGraph")) {
       return;
     }
     if (event.code !== CHORD_CODE && event.key?.toLowerCase() !== CHORD_KEY) {
@@ -81,8 +86,8 @@
     if (editable(event.originalTarget ?? event.target)) {
       return;
     }
-    // Nothing playing: leave the chord alone, so Ctrl+Shift+T still reopens a
-    // closed tab when there is no player to act on.
+    // Nothing playing: leave the chord alone rather than swallow a key nobody
+    // asked this mod to hold.
     if (!togglePlayer()) {
       return;
     }

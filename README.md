@@ -1,12 +1,12 @@
 # PiP Tuck Away
 
-A Sine mod for Zen Browser that gets the picture-in-picture player out of the way. Throw it at a screen edge and it slides mostly off screen, leaving a small strip of video. Right-click, press Ctrl+Shift+T, or hover the strip to bring it back.
+A Sine mod for Zen Browser that gets the picture-in-picture player out of the way. Throw it at a screen edge and it slides mostly off screen, leaving a small strip of video. Right-click, press Ctrl+Alt+T, or hover the strip to bring it back.
 
 Picture-in-picture is useful right up until it sits on top of the thing you are reading. Firefox lets you move the window but never remembers where it went, so every video ends up parked over the same paragraph. This mod turns the screen edge into a drawer.
 
 ## How it behaves
 
-Right-clicking the player tucks it into the closest edge and right-clicking again pulls it back out. Pressing **Ctrl+Shift+T** switches between the two states from any Zen window, so the shortcut works while you are typing in the browser as well as while the video has focus. Hovering the strip slides the whole player back into view, and it returns to the edge as soon as the pointer leaves the video.
+Right-clicking the player tucks it into the closest edge and right-clicking again pulls it back out. Pressing **Ctrl+Alt+T** switches between the two states from any Zen window, so the shortcut works while you are typing in the browser as well as while the video has focus. Hovering the strip slides the whole player back into view, and it returns to the edge as soon as the pointer leaves the video.
 
 Tucking keeps the window's size and only moves it, so the video never re-encodes, restarts, or loses its place. The strip is a narrow sliver on a side edge and sits flush with the screen, which makes it reachable without aiming. Coming back out by hand places the player inside the screen edges with a 16px margin, never half off screen.
 
@@ -23,7 +23,7 @@ The mod adds one section to its settings dialog in Sine.
 | Tuck Direction | Smart | Which edge the strip tucks into: Smart, Right, Top, Left or Bottom |
 | Tuck when dragged past the edge | on | Drag the player so part of it is past a screen edge, then move the pointer off it to tuck that way |
 | Tuck width | Normal | How much of the player stays on screen while tucked: Normal (24px), Wide (48px) or Very wide (72px) |
-| Toggle with Ctrl+Shift+T | on | The keyboard toggle, from any Zen window |
+| Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
 | Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
 | Integrate PiP in the player widget | off | Switching tabs keeps the video in Zen's sidebar card; the window appears only when you leave Zen |
@@ -140,9 +140,11 @@ The button stays. Zia hides its tuck button once its own switch is off, and a pl
 
 ## The keyboard chord
 
-Ctrl+Shift+T toggles the player. The listener is installed on every chrome window the browser owns, not just the main one, so the chord works from a second browser window and from the player itself, which is the window that usually has focus while you are watching something. The player is found through the window mediator rather than through the window that saw the key, so there is one code path whether the chord lands in the browser or in the player.
+Ctrl+Alt+T toggles the player. The listener is installed on every chrome window the browser owns, not just the main one, so the chord works from a second browser window and from the player itself, which is the window that usually has focus while you are watching something. The player is found through the window mediator rather than through the window that saw the key, so there is one code path whether the chord lands in the browser or in the player.
 
-The chord only acts while a player window is open. With nothing playing it is passed through untouched, so Ctrl+Shift+T still reopens a closed tab the way the browser intends.
+`Ctrl+Alt+T` rather than `Ctrl+Shift+T`, because the shift chord is the browser's reopen-closed-tab and was never this mod's to take. An AltGr press is ignored: most keyboard layouts report AltGr as ctrl+alt, so a Bulgarian or German layout would otherwise hand the mod a key it owns.
+
+The chord only acts while a player window is open. With nothing playing it is passed through untouched, so the browser keeps its own reopen-closed-tab chord.
 
 Outside Zen it does nothing. Windows gives a chord to another application only through a native registration, and the platform has no hotkey API a browser mod could use, so there is no honest way to make this work while another application has focus.
 
