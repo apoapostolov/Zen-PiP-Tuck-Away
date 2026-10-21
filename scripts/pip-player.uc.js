@@ -33,6 +33,8 @@
   const PEEK_POLL = 90; // how often the zone is re-checked while revealed
   const PEEK_ZONE = 28; // screen-space margin around the revealed player
   const PEEK_STALE = 30000; // how long a remembered pointer position is trusted
+  const EDGE_BAND = 12; // px from the screen edge where :hover is not trustworthy
+  const REVEAL_COOLDOWN = 250; // after a retract, no new reveal at once
   const DRIFT_PX = 3; // movement by anyone else that counts as a drag
 
   const root = document.documentElement;
@@ -51,7 +53,8 @@
   let settleTimers = [];
   let leaveTimer = null;
   let pollTimer = null;
-  let driftTimer = null;
+  let tuckedTimer = null;
+  let reopenAfter = 0;
   /** Screen coordinates of the pointer at its last event, so window moves cannot invalidate them. */
   let pointer = { x: 0, y: 0, at: 0 };
 
@@ -342,6 +345,29 @@
     return Date.now() - pointer.at < PEEK_STALE && inZone(pointer.x, pointer.y);
   };
 
+  /**
+   * The last pixel of the screen belongs to the window's resize border, and a
+   * window that moves under a pointer which never moved can drop its hover
+   * state. Near the tucked edge neither is a decision to leave, so a pointer
+   * in that band keeps counting as present.
+   */
+  const pointerNearEdge = () => {
+    if (Date.now() - pointer.at >= PEEK_STALE || !inZone(pointer.x, pointer.y)) {
+      return false;
+    }
+    const b = screenBox();
+    if (spot === "left") {
+      return pointer.x <= b.left + EDGE_BAND;
+    }
+    if (spot === "right") {
+      return pointer.x >= b.right - EDGE_BAND;
+    }
+    if (spot === "top") {
+      return pointer.y <= b.top + EDGE_BAND;
+    }
+    return pointer.y >= b.bottom - EDGE_BAND;
+  };
+
   const startPoll = () => {
     stopPoll();
     pollTimer = setInterval(() => {
@@ -366,7 +392,7 @@
     if (state !== "tucked" || peeked || document.fullscreenElement) {
       return;
     }
-    if (!pref(PREF_HOVER_PEEK, false)) {
+    if (!pref(PREF_HOVER_PEEK, false) || Date.now() < reopenAfter) {
       return;
     }
     peeked = true;
@@ -383,6 +409,7 @@
     if (!peeked) {
       return;
     }
+    reopenAfter = Date.now() + REVEAL_COOLDOWN;
     stopPeek();
     if (state === "tucked" && !document.fullscreenElement) {
       glide(...tuckedPos(spot));
@@ -396,7 +423,7 @@
     }
     leaveTimer = setTimeout(() => {
       leaveTimer = null;
-      if (peeked && !revealing && !animating && !stillWanted()) {
+      if (peeked && !revealing && !animating && Date.now() >= settleUntil && !stillWanted()) {
         retract();
       }
     }, PEEK_GRACE);
@@ -445,13 +472,21 @@
   };
 
   const onMouseLeave = () => {
-    if (peeked) {
-      // A real departure. Forget where the pointer was so the zone cannot keep
-      // the reveal alive from a stale reading, but do not collapse at once:
-      // the grace period covers a pointer crossing a gap.
-      pointer = { ...pointer, at: 0 };
-      scheduleLeave();
+    if (!peeked) {
+      return;
     }
+    if (pointerNearEdge()) {
+      // The pointer cannot have gone anywhere: the edge is right there. Keep
+      // the reading fresh instead of believing this leave, which is what made
+      // the reveal strobe when the cursor was parked on the screen edge.
+      pointer = { ...pointer, at: Date.now() };
+      return;
+    }
+    // A real departure. Forget where the pointer was so the zone cannot keep
+    // the reveal alive from a stale reading, but do not collapse at once: the
+    // grace period covers a pointer crossing a gap.
+    pointer = { ...pointer, at: 0 };
+    scheduleLeave();
   };
 
   const onResize = () => {
@@ -473,31 +508,39 @@
   };
 
   /**
-   * While tucked, only this mod moves the window. If it ends up somewhere
-   * else, the strip was dragged out by hand, so stop claiming it is tucked
-   * rather than fighting for the position.
+   * Watches the tucked state for the two things an event cannot be trusted
+   * for: a pointer still sitting on the strip whose hover state went missing,
+   * and a window somebody else moved.
    */
-  const watchDrift = () => {
-    if (driftTimer) {
+  const watchTucked = () => {
+    if (tuckedTimer) {
       return;
     }
-    driftTimer = setInterval(() => {
+    tuckedTimer = setInterval(() => {
       if (state !== "tucked" || peeked || animating || revealing) {
         return;
       }
       if (Date.now() < settleUntil) {
         return;
       }
+      // Somebody else moved the window: let go before anything else, or a
+      // pointer resting on it would drag it straight back.
       const [x, y] = tuckedPos(spot);
-      if (Math.abs(window.screenX - x) <= DRIFT_PX && Math.abs(window.screenY - y) <= DRIFT_PX) {
+      if (Math.abs(window.screenX - x) > DRIFT_PX || Math.abs(window.screenY - y) > DRIFT_PX) {
+        stopPeek();
+        state = "free";
+        spot = null;
+        root.removeAttribute("pip-tucked");
+        home = { x: window.screenX, y: window.screenY };
         return;
       }
-      stopPeek();
-      state = "free";
-      spot = null;
-      root.removeAttribute("pip-tucked");
-      home = { x: window.screenX, y: window.screenY };
-    }, 300);
+      // A pointer that is still there should have the strip out, whether or not
+      // an enter event ever arrived. Same condition the poll retracts on, so the
+      // two can never disagree.
+      if (Date.now() >= reopenAfter && (hovering() || pointerNearEdge())) {
+        reveal();
+      }
+    }, 200);
   };
 
   const onPrefChange = (subject, topic, name) => {
@@ -516,7 +559,7 @@
   window.addEventListener("resize", onResize);
   document.addEventListener("fullscreenchange", onFullscreenChange);
   Services.prefs.addObserver(PREF_HOVER_PEEK, onPrefChange);
-  watchDrift();
+  watchTucked();
 
   /**
    * Zia's tuck button stays where it is and drives this mod.
@@ -887,9 +930,9 @@
   const destroy = () => {
     stopPeek();
     glideId++;
-    if (driftTimer) {
-      clearInterval(driftTimer);
-      driftTimer = null;
+    if (tuckedTimer) {
+      clearInterval(tuckedTimer);
+      tuckedTimer = null;
     }
     for (const id of settleTimers) {
       clearTimeout(id);
