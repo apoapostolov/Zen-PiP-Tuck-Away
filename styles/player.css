@@ -95,6 +95,20 @@
   border-top-color: #fff;
 }
 
+/* A peek is a look at the video, not a control surface. While the reveal is
+ * bare the strip stays away with the rest of the controls, and it comes back
+ * the same way they do: on a left press. Without this, hovering a tucked
+ * player turned the video back into a tuck target under the pointer. */
+:root[pip-tuck-away-bare] #pip-tuck-away-overlay:not([hidden]) {
+  display: none;
+}
+
+/* The same thing said without trusting the hidden flag, in case a state change
+ * left it behind. */
+:root[pip-peeking][pip-tuck-away-bare] #pip-tuck-away-overlay {
+  display: none;
+}
+
 /* ---------- the direction picker, on a right press -------------------- */
 
 #pip-tuck-away-picker {

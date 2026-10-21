@@ -328,6 +328,7 @@
     root.removeAttribute(CONTROLS_ATTR);
     setBare(false);
     clearFrost();
+    updateOverlay();
   };
 
   const tuck = (side = null) => {
@@ -539,6 +540,8 @@
     root.setAttribute("pip-peeking", "");
     setBare(true);
     frostNothing();
+    // The strip belongs to the control layer and a peek is not one.
+    updateOverlay();
     glide(...flushPos(spot), GLIDE_MS, () => {
       revealing = false;
     });

@@ -54,6 +54,8 @@ The strip is a child of Firefox's own `#controls` layer, placed before everythin
 
 With **Tuck Control Overlay** off there is no strip at all, and tucking falls back to right-click, the chord and auto tuck. The strip also steps aside while the player is tucked or in fullscreen, because the strip at the edge is the way back.
 
+A peek is a look at the video, so the strip stays away while a reveal is bare and comes back with the rest of the controls: after a left press on the revealed player. Without that, hovering a tucked player put a tuck target back over the video the moment the pointer reached it.
+
 The overlay is on by default and works whether or not Zia is installed. When Zia is there, both its button and this strip do the same thing, since both end up in the same tuck.
 
 ## Player widget integration
