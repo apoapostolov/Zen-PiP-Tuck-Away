@@ -22,21 +22,33 @@
   },
   {
     "property": "pip-tuck-away.shortcut",
-    "label": "Toggle with **Ctrl+Shift+T**",
+    "label": "Toggle with **Ctrl+Alt+T**",
     "type": "checkbox",
     "defaultValue": true
+  },
+  {
+    "property": "pip-tuck-away.global-hotkey",
+    "label": "Same chord outside Zen (needs the helper)",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "type": "text",
+    "label": "Ctrl+Alt+T is installed on every Zen window, so it works from the player itself and from a second window. It only acts while a player is open, so the chord stays free otherwise.",
+    "size": "11px",
+    "margin": "4px 0 0 0"
+  },
+  {
+    "type": "text",
+    "label": "Windows only gives a chord to another application through a native registration, which a mod cannot make. Run tools/pip-hotkey.pyw once and tick the box above for that, otherwise the chord works inside Zen only.",
+    "size": "11px",
+    "margin": "2px 0 0 0"
   },
   {
     "property": "pip-tuck-away.hover-peek",
     "label": "Peek while hovering the tucked strip",
     "type": "checkbox",
     "defaultValue": false
-  },
-  {
-    "type": "text",
-    "label": "While a player window is open, Ctrl+Shift+T belongs to this mod, so it no longer reopens a closed tab. Turn the shortcut off to give it back.",
-    "size": "11px",
-    "margin": "8px 0 0 0"
   },
   {
     "type": "separator",

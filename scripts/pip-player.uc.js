@@ -4,7 +4,8 @@
 // screen edge so only a strip stays visible, and brings it back on demand.
 //
 // Exposes window.__pipTuckAway = { toggle, tuck, untuck, isTucked, destroy }
-// so the browser-window half can drive it from a keyboard shortcut.
+// so the browser-window half can drive it. The keyboard chord lives in the
+// browser half, which installs it on every Zen window including this one.
 //
 // The screen-edge geometry (sliver width, tuck/return maths) is adapted from
 // Zia by z1n-k (MIT), chrome/sine-mods/zia/zia-pip.js. See CREDITS.md.
@@ -16,7 +17,6 @@
   }
 
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
-  const PREF_SHORTCUT = "pip-tuck-away.shortcut";
   const PREF_HOVER_PEEK = "pip-tuck-away.hover-peek";
   const PREF_AUTO_TUCK = "pip-tuck-away.auto-tuck";
   /** Zia's own tuck switch. This mod replaces that feature, so it must be off. */
@@ -459,21 +459,6 @@
     }
   };
 
-  const onKeyDown = (event) => {
-    if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) {
-      return;
-    }
-    if (event.code !== "KeyT" && event.key?.toLowerCase() !== "t") {
-      return;
-    }
-    if (!pref(PREF_SHORTCUT, true) || event.repeat) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    toggle();
-  };
-
   const onResize = () => {
     if (state !== "tucked") {
       return;
@@ -532,7 +517,6 @@
   document.addEventListener("mousemove", onMouseMove, true);
   document.addEventListener("mouseenter", onMouseEnter, true);
   document.addEventListener("mouseleave", onMouseLeave, true);
-  window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("resize", onResize);
   document.addEventListener("fullscreenchange", onFullscreenChange);
   Services.prefs.addObserver(PREF_HOVER_PEEK, onPrefChange);
@@ -613,7 +597,6 @@
     document.removeEventListener("mouseenter", onMouseEnter, true);
     document.removeEventListener("mouseleave", onMouseLeave, true);
     document.removeEventListener("fullscreenchange", onFullscreenChange);
-    window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("resize", onResize);
     try {
       Services.prefs.removeObserver(PREF_HOVER_PEEK, onPrefChange);

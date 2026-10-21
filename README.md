@@ -19,7 +19,8 @@ The mod adds one section to its settings dialog in Sine, with four switches.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Tuck away on right click | on | Right-clicking the player toggles tucked and untucked |
-| Toggle with Ctrl+Shift+T | on | The keyboard toggle, from the browser window or the player |
+| Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
+| Same chord outside Zen | off | Uses the bundled helper, which registers the chord with Windows |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
 | Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
 | Integrate PiP in the player widget | off | Switching tabs keeps the video in Zen's sidebar card; the window appears only when you leave Zen |
@@ -61,11 +62,30 @@ Zia tucks picture-in-picture as well, and two mods moving the same window turn e
 - Right-clicks inside Zia's own player controls are passed straight to Zia, so turning Zia's tuck back on does not break its picker.
 - The two mods share no state: this one marks the window with `pip-tucked` and `pip-peeking`, never writes Zia's preferences, and Zia keeps its own `zia-*` attributes.
 
-## Ctrl+Shift+T is a busy shortcut
+## The keyboard chord
 
-Firefox uses Ctrl+Shift+T to reopen the last closed tab. While a picture-in-picture player is open, this mod takes the chord, because that is the point of a toggle. When no player is open the chord is passed straight through and undo-close-tab works as usual.
+Ctrl+Alt+T toggles the player. The listener is installed on every chrome window the browser owns, not just the main one, so the chord works from a second browser window and from the player itself, which is the window that usually has focus while you are watching something. The player is found through the window mediator rather than through the window that saw the key, so there is one code path whether the chord lands in the browser or in the player.
 
-If you would rather keep undo-close-tab everywhere, turn the shortcut off in the mod settings. The right-click and hover controls keep working.
+The chord only acts while a player window is open. With nothing playing it is passed through untouched, so Ctrl+Alt+T stays available for whatever else wants it.
+
+### Making it work outside Zen
+
+Windows delivers a chord to another application only if a process registered it with `RegisterHotKey`. Firefox exposes no hotkey API to its own chrome scripts, and the browser can never receive keys while another application holds focus, so this part cannot live in the mod.
+
+`tools/pip-hotkey.pyw` is that registration. It is a small helper that registers Ctrl+Alt+T, and on each press appends a sequence number to `%LOCALAPPDATA%\pip-tuck-away\toggle.json`. The mod polls that file while a player exists and runs the same toggle. Nothing else changes: with the helper absent, the chord simply works inside Zen only.
+
+```powershell
+powershell -NoProfile -File tools\install-autostart.ps1
+```
+
+That writes a tiny `.vbs` into your Startup folder, which starts the helper through `pythonw.exe` so no console window ever appears, and starts it now. Remove it with `-Remove`, which also asks the helper to exit.
+
+Requirements and behaviour worth knowing:
+
+- Python 3 must be installed, because the helper is the registration host. Nothing else is downloaded.
+- If another application already owns Ctrl+Alt+T, registration fails, the helper writes the Windows error to `status.json`, and the mod keeps working inside Zen only. Nothing breaks quietly without a trace.
+- The mod never launches the helper. What starts on your machine stays your decision.
+- `stop` in the state folder makes the helper exit; it also exits when the registration is lost.
 
 ## Known limits
 
@@ -80,8 +100,9 @@ Two scripts, no stylesheet.
 
 | File | Runs in | Job |
 | --- | --- | --- |
-| `scripts/pip-tuck-away.uc.js` | the browser window | Watches for player windows, loads the player half into each one, owns the keyboard toggle |
+| `scripts/pip-tuck-away.uc.js` | any browser window | Watches for player windows, loads the player half into each one, owns the keyboard chord on every window, keeps playback inline while Zen has focus |
 | `scripts/pip-player.uc.js` | the picture-in-picture player | Right-click, hover peek, the move maths, and the exposed toggle API |
+| `tools/pip-hotkey.pyw` | a hidden Windows process | Registers Ctrl+Alt+T with the OS and writes the toggle signal the mod polls |
 
 Sine declares only the first script, so it loads exactly once into `browser.xhtml`. The second is loaded on demand through `Services.scriptloader.loadSubScript`, using the profile's `content sine ../sine-mods/` manifest entry, which is why the mod's files are reachable at `chrome://sine/content/pip-tuck-away/`.
 
