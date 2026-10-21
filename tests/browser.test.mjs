@@ -456,11 +456,15 @@ function mk(prefsIn = {}, opts = {}) {
     },
     setTimeout: (fn) => {
       if (opts.deferTimers) {
-        deferred.push(fn);
+        deferred.push({ fn, cancelled: false });
         return deferred.length;
       }
       fn();
       return 0;
+    },
+    clearTimeout: (id) => {
+      const entry = deferred[id - 1];
+      if (entry) entry.cancelled = true;
     },
     console,
     Object,
@@ -548,7 +552,8 @@ function mk(prefsIn = {}, opts = {}) {
     pipWindows,
     runTimers: () => {
       while (deferred.length) {
-        deferred.shift()();
+        const entry = deferred.shift();
+        if (!entry.cancelled) entry.fn();
       }
     },
     pipApi: () => pipModule.PictureInPicture,
@@ -885,7 +890,7 @@ const mirrorActor = {
 
 // 17c. the trace says what happened to the request
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": true }, { mediaCard: "shown", deferTimers: true });
   await t.pipApi().handlePictureInPictureRequest(wgpFor(false), { src: "video" });
   await tick();
   check("the request is recorded as mirrored", /mirror: the widget shows the video/.test(t.traces()), true);
@@ -939,7 +944,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 23a. the player is docked into the media card's gap
 {
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const calls = [];
   const undocks = [];
   t.windows[0].__pipTuckAway = {
@@ -962,7 +967,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 23b. the gap is stable while nothing moves
 {
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const calls = [];
   t.windows[0].__pipTuckAway = {
     dock: (rect) => calls.push(rect),
@@ -1050,7 +1055,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 23e. the panel leaves the widget when the application goes to the background
 {
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const calls = [];
   const undocks = [];
   t.windows[0].__pipTuckAway = {
@@ -1089,7 +1094,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 23g. the gap between the panel and the card stays the same size
 {
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const calls = [];
   t.windows[0].__pipTuckAway = {
     dock: (rect) => calls.push(rect),
@@ -1110,15 +1115,15 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 // 30. in front, a playing video is shown by the widget and no player is opened
 {
   mirrorActor.sent.length = 0;
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const wgp = wgpFor(false, { selected: false });
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
   await tick();
   check("no player window was opened", t.pipCalls.length, 0);
   check("the widget has the video", !!t.mirror(), true);
   check("the canvas is in the toolbar", t.mirror()?.parent !== null, true);
-  check("it sits above the card, at the card's width", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
-  check("and the widget makes room for it", t.barStyle.props["--zen-media-collapsed-height"] !== undefined, true);
+  check("nothing is drawn before a picture arrives", t.mirror().hasAttribute("waiting"), true);
+  check("and no room is taken yet", t.barStyle.props["--zen-media-collapsed-height"], undefined);
   check("the tab was asked to start copying", mirrorActor.sent.map((m) => m.name), ["PipMirror:Start"]);
   check("the actor is registered", Object.keys(t.registeredActors), ["PipMirror"]);
 }
@@ -1143,7 +1148,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 30d. a protected video falls back to a player window
 {
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const wgp = wgpFor(false, { selected: false, bcId: 7 });
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
   await tick();
@@ -1156,22 +1161,40 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 // 30e. a copied frame is painted
 {
   mirrorActor.sent.length = 0;
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const wgp = wgpFor(false, { selected: false, bcId: 11 });
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
   await tick();
   const frame = { buf: new ArrayBuffer(4 * 4 * 2 * 2), width: 2, height: 2, time: 3, duration: 60, paused: false };
   t.controller().mirrorStarted(11, { width: 1280, height: 720, paused: false }, mirrorActor);
+  check("still waiting for a picture", t.mirror().hasAttribute("waiting"), true);
   t.controller().mirrorFrame(11, frame);
   check("the canvas has pixels", t.mirror().firstElementChild.painted?.width, 2);
+  check("the panel appears with the first frame", t.mirror().hasAttribute("waiting"), false);
+  check("it sits above the card, at the card's width", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
+  check("and the widget makes room for it", t.barStyle.props["--zen-media-collapsed-height"] !== undefined, true);
   check("and the play button says pause", t.mirror().querySelector(".pip-tuck-away-mirror-button path").getAttribute("d").startsWith("M4 2h4"), true);
   check("a click on the picture is a play/pause", (t.mirror().firstElementChild.fire("click", {}) ?? true) && mirrorActor.sent.some((m) => m.name === "PipMirror:Control" && m.data.action === "toggle"), true);
+}
+
+// 30e2. a video that never produces a picture becomes a player window
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 19 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  check("nothing drawn yet", t.mirror().hasAttribute("waiting"), true);
+  t.runTimers(); // the patience runs out
+  await tick();
+  await tick();
+  check("the platform got the request", t.pipCalls.length, 1);
+  check("and the empty panel is gone", t.mirror(), null);
 }
 
 // 30f. leaving the browser hands the video to the standard player
 {
   mirrorActor.sent.length = 0;
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   t.windows.length = 0; // the widget is showing it: no player window exists
   const wgp = wgpFor(false, { selected: false, bcId: 13 });
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
@@ -1186,7 +1209,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 // 30g. the video's own tab coming forward ends the mirror
 {
   mirrorActor.sent.length = 0;
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   const wgp = wgpFor(false, { selected: false, bcId: 17 });
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
   await tick();

@@ -31,6 +31,7 @@ Hovering the strip slides the whole player back into view when the peek setting 
 | Tuck Direction | Smart | Which edge the strip tucks into: Smart, Right, Top, Left or Bottom. Smart measures the player's centre against all four edges |
 | Tuck when dragged past the edge | on | Drag the player past a screen edge, then move the pointer off it to tuck that way |
 | Tuck width | Normal | How much of the player stays on screen: Normal (24px), Wide (48px) or Very wide (72px) |
+| Tucked PiP Frosted Glass | on | The strip a tucked player leaves is frosted, so it reads as a handle. Off, it is plain video |
 | Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player out until the pointer leaves the video |
 | PiP uses the widget | on | In front, the video plays in the media widget and no player is opened. In the background, the standard picture-in-picture is used |
@@ -45,12 +46,14 @@ The widget shows a copy of the picture, not a player. A content actor in the pag
 
 That is the point of doing it this way. Picture-in-picture is never in use while the browser is in front, so it keeps its own remembered size, its own place and its own tucked edge, and it is exactly what appears the moment you leave the browser. Nothing about it is borrowed, moved or resized by this mod.
 
+Nothing is drawn until a real frame has arrived. Until then the panel is not in the layout at all, so there is no black box standing in for a video and no room taken from the sidebar. If no picture comes within a couple of seconds, the request goes to the platform and a player window opens instead.
+
 Two honest limits:
 
 - **Protected video copies as black.** A frame copy of an encrypted stream cannot be read, so when a page reports a media key system the widget steps aside and a normal player window opens instead, docked where the panel would have been. YouTube, Twitch and most sites are fine; a DRM service is not.
 - **A copy costs a little.** Frames are downscaled to 480px on the long edge and sent about twenty times a second, which is nothing on a modern machine but is not free. A paused video sends one frame and then stays quiet.
 
-## Going back to the tab## Going back to the tab
+## Going back to the tab
 
 Selecting the tab a player came from puts the video back in the page and takes the player away. Firefox does that itself, but only for the players it registered as caught by a tab switch, and that registration depends on the tab's docshell still being asleep when the player opened. Anything that wakes it first loses the behaviour silently, and the player simply stays where it is. So the mod keeps its own note of which tabs it saw a player taken from, and closes that player when the tab comes forward, either in the tab strip or by returning to Zen with that tab in front. A player you asked for by hand is left alone, since it was not the tab walking away that opened it.
 
@@ -61,6 +64,8 @@ Zen's own auto-toggle only fires for a tab that became hidden, so leaving Zen wi
 ## Where the player goes
 
 The player remembers the place you last put it, including when it was closed while tucked, so the next video opens where the last one lived rather than in a corner. A place the mod itself imposed, from a rescue or a platform restore, is never written down as yours.
+
+The strip is frosted by default, so it reads as a handle rather than a chopped-up sliver. **Tucked PiP Frosted Glass** turns that off, and the strip is then plain video.
 
 A tucked strip stays 24px on screen by default, or 48 or 72 with the wider settings. Pulling it free puts it 16px inside the screen edge it came from.
 

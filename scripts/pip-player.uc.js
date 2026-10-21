@@ -20,6 +20,8 @@
   }
 
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
+  const PREF_FROST = "pip-tuck-away.frosted";
+  const FROST_ATTR = "pip-frosted";
   const stringPref = (name, fallback) => {
     try {
       if (Services.prefs.getPrefType(name) === 0) {
@@ -1812,6 +1814,25 @@
     }
   };
 
+  /**
+   * The frosted glass on a tucked strip is a matter of taste: a plain strip of
+   * video is what some people want. Off, the attribute that carries the filter
+   * is dropped, and any filter already on the element goes with it, so a strip
+   * that was frosted a moment ago is plain at once rather than at the next tuck.
+   */
+  const applyFrost = () => {
+    try {
+      if (pref(PREF_FROST, true)) {
+        root.setAttribute(FROST_ATTR, "");
+      } else {
+        root.removeAttribute(FROST_ATTR);
+        clearFrost();
+      }
+    } catch (err) {
+      // A player without a root element needs nothing.
+    }
+  };
+
   const frostNothing = () => {
     try {
       const holder = playerHolder();
@@ -1921,6 +1942,7 @@
 
   /** Build, place, or take away the strip to match the settings and the state. */
   const updateOverlay = () => {
+    applyFrost();
     const controls = document.getElementById("controls");
     if (!controls) {
       return;
@@ -1957,6 +1979,11 @@
     }
   };
 
+  const onFrostPref = () => {
+    applyFrost();
+  };
+
+  Services.prefs.addObserver(PREF_FROST, onFrostPref);
   Services.prefs.addObserver(PREF_OVERLAY, onOverlayPref);
   Services.prefs.addObserver(PREF_DIRECTION, onOverlayPref);
   updateOverlay();
@@ -2109,6 +2136,7 @@
       document.getElementById(PICKER_ID)?.remove();
       document.getElementById(BUTTON_ID)?.remove();
       document.removeEventListener("mousedown", onDocumentMouseDown, true);
+      Services.prefs.removeObserver(PREF_FROST, onFrostPref);
       Services.prefs.removeObserver(PREF_OVERLAY, onOverlayPref);
       Services.prefs.removeObserver(PREF_DIRECTION, onOverlayPref);
     } catch (err) {

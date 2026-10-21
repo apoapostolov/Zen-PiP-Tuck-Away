@@ -17,6 +17,12 @@
     "defaultValue": true
   },
   {
+    "property": "pip-tuck-away.frosted",
+    "label": "Tucked PiP Frosted Glass *The strip a tucked player leaves is frosted, so it reads as a handle rather than a chopped-up sliver. Off, the strip is plain video.*",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "pip-tuck-away.overlay",
     "label": "Tuck Control Overlay",
     "type": "checkbox",

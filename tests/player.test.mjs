@@ -323,6 +323,10 @@ function mk(prefsIn = {}, opts = {}) {
           prefs[k] = v;
           observers.get(k)?.({}, "nsPref:changed", k);
         },
+        setBoolPref: (k, v) => {
+          prefs[k] = v;
+          observers.get(k)?.({}, "nsPref:changed", k);
+        },
         addObserver: (k, fn) => observers.set(k, fn),
         removeObserver: (k) => observers.delete(k),
       },
@@ -1148,6 +1152,43 @@ const check = (name, actual, expected) => {
   check("and still writes the choice down", t.getPref("pip-tuck-away.direction"), "top");
 }
 
+// 31. the frosted glass on a tucked strip is a setting
+{
+  const t = mk({});
+  t.runTimers();
+  t.flush();
+  check("frosted by default", t.attrs.has("pip-frosted"), true);
+  t.api.tuck("right");
+  t.flush();
+  check("and still frosted when tucked", t.attrs.has("pip-frosted"), true);
+  const css = t.overlayStyle()?.textContent ?? "";
+  check("the sheet only frosts a strip that asked for it", css.includes(":root[pip-tucked][pip-frosted]"), true);
+}
+
+// 31b. off, the strip is plain video, at once
+{
+  const t = mk({ "pip-tuck-away.frosted": false });
+  t.runTimers();
+  t.flush();
+  check("not frosted", t.attrs.has("pip-frosted"), false);
+  t.api.tuck("right");
+  t.flush();
+  check("and the strip carries no filter", t.attrs.has("pip-frosted"), false);
+}
+
+// 31c. switching it on with a player open takes effect without a restart
+{
+  const t = mk({ "pip-tuck-away.frosted": false });
+  t.runTimers();
+  t.flush();
+  t.api.tuck("right");
+  t.flush();
+  t.setPref("pip-tuck-away.frosted", true);
+  check("frosted now", t.attrs.has("pip-frosted"), true);
+  t.setPref("pip-tuck-away.frosted", false);
+  check("and plain again", t.attrs.has("pip-frosted"), false);
+}
+
 // 25. nothing else is needed for any of it
 {
   const t = mk({});
@@ -1314,7 +1355,7 @@ const check = (name, actual, expected) => {
   check("badge built", !!badge, true);
   const css = t.tuckStyle()?.textContent ?? "";
   check("the video frosts while tucked", css.includes(".player-holder{filter:blur(16px) brightness(0.85)}"), true);
-  check("the frost is only for the tucked state", css.includes(":root[pip-tucked]:not([pip-peeking]) .player-holder"), true);
+  check("the frost is only for a tucked strip that asked for it", css.includes(":root[pip-tucked][pip-frosted]:not([pip-peeking]) .player-holder"), true);
   check(
     "the controls go transparent while tucked, so the strip stays a hit target",
     css.includes(":root[pip-tucked]:not([pip-peeking]) #controls{opacity:0 !important}"),

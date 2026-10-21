@@ -704,6 +704,9 @@
   const MIRROR_RES = "pip-tuck-away";
   const MIRROR_VERSION = "1"; // bump when either actor file changes
   const MIRROR_ID = "pip-tuck-away-mirror";
+  // Long enough for a slow first frame, short enough that a video which cannot
+  // be copied is a player window rather than an empty box.
+  const MIRROR_PATIENCE = 2000;
   const XHTML_NS = "http://www.w3.org/1999/xhtml";
   const PLAY_ICON = "M4 2l12 8-12 8z";
   const PAUSE_ICON = "M4 2h4v14H4zM10 2h4v14h-4z";
@@ -717,6 +720,8 @@
   let mirrorAspect = 16 / 9;
   let mirrorState = { paused: false, time: 0, duration: 0 };
   let heldRequest = null; // a request no player was opened for, kept for the fallback
+  let mirrorPainted = false; // a real picture has arrived, so the panel may be shown
+  let mirrorPatience = 0; // the timer that gives up when no picture comes
   let lastMirrored = null; // the tab the widget was showing when the browser lost focus
   const forcedPip = new WeakSet();
 
@@ -802,6 +807,9 @@
   const buildMirrorBox = () => {
     const box = window.document.createElementNS(XHTML_NS, "div");
     box.id = MIRROR_ID;
+    // Waiting means the panel is not in the layout at all: no box, no room
+    // taken from the sidebar, nothing drawn until a real frame has arrived.
+    box.setAttribute("waiting", "");
     const canvas = window.document.createElementNS(XHTML_NS, "canvas");
     box.append(canvas);
     const progress = window.document.createElementNS(XHTML_NS, "div");
@@ -875,6 +883,15 @@
     const canvas = box?.firstElementChild;
     if (!box || !canvas || !frame?.buf) {
       return;
+    }
+    if (!mirrorPainted) {
+      mirrorPainted = true;
+      if (mirrorPatience) {
+        clearTimeout(mirrorPatience);
+        mirrorPatience = 0;
+      }
+      box.removeAttribute("waiting");
+      placeMirror();
     }
     if (canvas.width !== frame.width || canvas.height !== frame.height) {
       canvas.width = frame.width;
@@ -950,8 +967,17 @@
     mirrorActor = actor;
     mirrorBrowser = browser;
     mirrorContext = null;
+    mirrorPainted = false;
+    if (mirrorPatience) {
+      clearTimeout(mirrorPatience);
+    }
+    mirrorPatience = setTimeout(() => {
+      mirrorPatience = 0;
+      if (!mirrorPainted) {
+        fallBackToPlayer("no picture arrived");
+      }
+    }, MIRROR_PATIENCE);
     mirrorState = { paused: false, time: 0, duration: 0 };
-    placeMirror();
     showMirrorState();
     try {
       actor.sendAsyncMessage("PipMirror:Start", {});
@@ -966,6 +992,11 @@
 
   const stopMirror = (reason = "") => {
     const had = !!mirrorActor;
+    mirrorPainted = false;
+    if (mirrorPatience) {
+      clearTimeout(mirrorPatience);
+      mirrorPatience = 0;
+    }
     if (had) {
       try {
         mirrorActor.sendAsyncMessage("PipMirror:Stop", {});
@@ -1020,7 +1051,6 @@
       mirrorActor = actor ?? mirrorActor;
       if (data?.width && data?.height) {
         mirrorAspect = data.width / data.height;
-        placeMirror();
       }
       mirrorState = {
         paused: !!data?.paused,
@@ -1104,13 +1134,17 @@
       if (fromTabSwitch && browser) {
         autoPipped.add(browser);
       }
-      if (shouldMirror(browser) && startMirror(browser)) {
+      if (shouldMirror(browser)) {
         // The widget shows this video and no player window is opened, so the
         // browser's own picture-in-picture is never in use while it is in front.
-        // The request is kept: if the copy turns out to be impossible the
-        // platform still gets it, and a player opens as it always did.
+        // The request is kept before the mirror starts: if the copy turns out to
+        // be impossible, at once or a moment later, the platform still gets it
+        // and a player opens as it always did.
         heldRequest = { wgp, videoData, browser };
-        return true;
+        if (startMirror(browser)) {
+          return true;
+        }
+        heldRequest = null;
       }
       trace(
         `request: tabSwitch=${fromTabSwitch} focus=${requestingWindowFocused(wgp)} ` +

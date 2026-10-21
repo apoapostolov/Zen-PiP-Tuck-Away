@@ -318,7 +318,9 @@
   transition: filter 280ms ease;
 }
 
-:root[pip-tucked]:not([pip-peeking]) .player-holder {
+/* The frost is a setting, so it rides on an attribute of its own: off, the
+ * strip is plain video with nothing over it. */
+:root[pip-tucked][pip-frosted]:not([pip-peeking]) .player-holder {
   filter: blur(16px) brightness(0.85);
 }
 
