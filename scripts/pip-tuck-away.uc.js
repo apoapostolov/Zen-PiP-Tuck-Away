@@ -329,7 +329,12 @@
     }
     try {
       const tabbrowser = browser.getTabBrowser?.();
-      if (tabbrowser && !tabbrowser.shouldActivateDocShell?.(browser)) {
+      // Only the tabbrowser can say whether this tab is meant to run. Guessing
+      // false for the visible tab would freeze the page.
+      if (!tabbrowser?.shouldActivateDocShell) {
+        return;
+      }
+      if (!tabbrowser.shouldActivateDocShell(browser)) {
         browser.docShellIsActive = false;
       }
     } catch (err) {
