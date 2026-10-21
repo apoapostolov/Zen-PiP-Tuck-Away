@@ -91,7 +91,7 @@
     return { left, top, right: left + s.availWidth, bottom: top + s.availHeight };
   };
 
-  /** The edge the window is closest to. No top edge: macOS refuses to move a window above the screen. */
+  /** The edge the window is closest to. */
   const nearestSide = () => {
     const b = screenBox();
     const cx = window.screenX + W() / 2;
@@ -99,6 +99,7 @@
     const distance = {
       left: cx - b.left,
       right: b.right - cx,
+      top: cy - b.top,
       bottom: b.bottom - cy,
     };
     return Object.keys(distance).sort((a, z) => distance[a] - distance[z])[0];
@@ -117,6 +118,8 @@
       x = b.right - SLIVER;
     } else if (name === "bottom") {
       y = b.bottom - SLIVER;
+    } else if (name === "top") {
+      y = b.top - h + SLIVER;
     }
     return [Math.round(x), Math.round(y)];
   };
@@ -134,6 +137,8 @@
       x = b.left;
     } else if (name === "bottom") {
       y = b.bottom - h;
+    } else if (name === "top") {
+      y = b.top;
     }
     return [Math.round(x), Math.round(y)];
   };
@@ -224,6 +229,7 @@
     state = "tucked";
     root.setAttribute("pip-tucked", spot);
     glide(...tuckedPos(spot));
+    updateOverlay();
     reflectZiaButton();
     return true;
   };
@@ -237,6 +243,7 @@
     spot = null;
     root.removeAttribute("pip-tucked");
     glide(...homePos());
+    updateOverlay();
     reflectZiaButton();
     return true;
   };
@@ -448,6 +455,7 @@
   };
 
   const onResize = () => {
+    updateOverlay();
     if (state !== "tucked") {
       return;
     }
@@ -629,6 +637,248 @@
     settleTimers.push(setTimeout(reconcileZia, delay));
   }
 
+
+  // ---------- the tuck control overlay
+  //
+  // A strip of the video that tucks when clicked, instead of the small pill
+  // other mods add: 20% of the width and 90% of the height on the side it will
+  // tuck into, with an arrow and a label. It goes in as the first child of
+  // #controls, so Firefox's own buttons and the control bar paint above it and
+  // keep their clicks. Only the uncovered part of the strip answers.
+
+  const XHTML_NS = "http://www.w3.org/1999/xhtml";
+  const PREF_OVERLAY = "pip-tuck-away.overlay";
+  const PREF_DIRECTION = "pip-tuck-away.direction";
+  const OVERLAY_ID = "pip-tuck-away-overlay";
+  const PICKER_ID = "pip-tuck-away-picker";
+  const OVERLAY_STYLE_ID = "pip-tuck-away-overlay-style";
+  const SIDES = ["right", "top", "left", "bottom"];
+  const PICKER_ORDER = ["top", "left", "smart", "right", "bottom"];
+  const DIRECTION_LABELS = {
+    smart: "Smart",
+    right: "Right",
+    top: "Top",
+    left: "Left",
+    bottom: "Bottom",
+  };
+
+  const OVERLAY_CSS = [
+    "#pip-tuck-away-overlay{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3em;border:0;padding:0;margin:0;background:transparent;color:#fff;font:600 11px/1.15 system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.03em;cursor:pointer;opacity:.45;z-index:0;-moz-window-dragging:no-drag;text-shadow:0 1px 3px rgba(0,0,0,.9);transition:opacity 120ms linear,background-color 120ms linear}",
+    "#pip-tuck-away-overlay[hidden]{display:none}",
+    "#pip-tuck-away-overlay:hover,#pip-tuck-away-overlay:focus-visible{opacity:1;background:rgba(0,0,0,.3);outline:none}",
+    "#pip-tuck-away-overlay[data-side=left]{left:0;top:5%;width:20%;height:90%}",
+    "#pip-tuck-away-overlay[data-side=right]{right:0;top:5%;width:20%;height:90%}",
+    "#pip-tuck-away-overlay[data-side=top]{top:0;left:5%;width:90%;height:20%}",
+    "#pip-tuck-away-overlay[data-side=bottom]{bottom:0;left:5%;width:90%;height:20%}",
+    "#pip-tuck-away-overlay .pip-tuck-away-arrow{width:0;height:0;border:7px solid transparent}",
+    "#pip-tuck-away-overlay[data-side=left] .pip-tuck-away-arrow{border-right-color:#fff}",
+    "#pip-tuck-away-overlay[data-side=right] .pip-tuck-away-arrow{border-left-color:#fff}",
+    "#pip-tuck-away-overlay[data-side=top] .pip-tuck-away-arrow{border-bottom-color:#fff}",
+    "#pip-tuck-away-overlay[data-side=bottom] .pip-tuck-away-arrow{border-top-color:#fff}",
+    "#pip-tuck-away-picker{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;display:grid;grid-template-columns:repeat(3,auto);gap:4px;padding:8px;border-radius:10px;background:rgba(24,24,27,.94);color:#fff;font:600 11px/1 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5);-moz-window-dragging:no-drag}",
+    "#pip-tuck-away-picker[hidden]{display:none}",
+    "#pip-tuck-away-picker .pip-tuck-away-picker-title{grid-column:1/-1;font-weight:600;opacity:.7;text-align:center;padding:2px 0 5px}",
+    "#pip-tuck-away-picker button{appearance:none;border:0;background:rgba(255,255,255,.08);color:inherit;font:inherit;padding:6px 9px;border-radius:6px;cursor:pointer}",
+    "#pip-tuck-away-picker button:hover{background:rgba(255,255,255,.22)}",
+    "#pip-tuck-away-picker button[aria-pressed=true]{background:rgba(255,255,255,.32)}",
+    "#pip-tuck-away-picker button[data-side=top]{grid-column:2;grid-row:2}",
+    "#pip-tuck-away-picker button[data-side=left]{grid-column:1;grid-row:3}",
+    "#pip-tuck-away-picker button[data-side=smart]{grid-column:2;grid-row:3}",
+    "#pip-tuck-away-picker button[data-side=right]{grid-column:3;grid-row:3}",
+    "#pip-tuck-away-picker button[data-side=bottom]{grid-column:2;grid-row:4}",
+  ].join("");
+
+  const directionPref = () => {
+    try {
+      const value = Services.prefs.getStringPref(PREF_DIRECTION, "smart");
+      return value === "smart" || SIDES.includes(value) ? value : "smart";
+    } catch (err) {
+      return "smart";
+    }
+  };
+
+  /** Where a press on the strip will park the player. */
+  const chosenSide = () => {
+    const value = directionPref();
+    return value === "smart" ? nearestSide() : value;
+  };
+
+  const ensureOverlayStyle = () => {
+    if (document.getElementById(OVERLAY_STYLE_ID)) {
+      return;
+    }
+    try {
+      const style = document.createElementNS(XHTML_NS, "style");
+      style.id = OVERLAY_STYLE_ID;
+      style.textContent = OVERLAY_CSS;
+      document.documentElement.appendChild(style);
+    } catch (err) {
+      log("could not style the tuck overlay", err);
+    }
+  };
+
+  const pickerElement = () => document.getElementById(PICKER_ID);
+
+  const closePicker = () => {
+    const picker = pickerElement();
+    if (picker) {
+      picker.hidden = true;
+    }
+    document.removeEventListener("mousedown", onDocumentMouseDown, true);
+  };
+
+  const chooseDirection = (side) => {
+    try {
+      Services.prefs.setStringPref(PREF_DIRECTION, side);
+    } catch (err) {
+      log("could not save the tuck direction", err);
+    }
+    closePicker();
+    updateOverlay();
+  };
+
+  const onDocumentMouseDown = (event) => {
+    const picker = pickerElement();
+    if (!picker || picker.hidden) {
+      return;
+    }
+    if (!picker.contains(event.target)) {
+      closePicker();
+    }
+  };
+
+  const buildPicker = () => {
+    const picker = document.createElementNS(XHTML_NS, "div");
+    picker.id = PICKER_ID;
+    picker.hidden = true;
+    picker.addEventListener("contextmenu", (event) => event.preventDefault());
+    const title = document.createElementNS(XHTML_NS, "div");
+    title.className = "pip-tuck-away-picker-title";
+    title.textContent = "Tuck into…";
+    picker.append(title);
+    for (const side of PICKER_ORDER) {
+      const button = document.createElementNS(XHTML_NS, "button");
+      button.dataset.side = side;
+      button.textContent = DIRECTION_LABELS[side];
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        chooseDirection(side);
+      });
+      picker.append(button);
+    }
+    return picker;
+  };
+
+  const openPicker = () => {
+    const picker = pickerElement();
+    if (!picker) {
+      return;
+    }
+    picker.hidden = false;
+    const current = directionPref();
+    for (const button of picker.querySelectorAll("button")) {
+      button.setAttribute("aria-pressed", button.dataset.side === current ? "true" : "false");
+    }
+    document.addEventListener("mousedown", onDocumentMouseDown, true);
+  };
+
+  const togglePicker = () => {
+    const picker = pickerElement();
+    if (picker && !picker.hidden) {
+      closePicker();
+    } else {
+      openPicker();
+    }
+  };
+
+  const onOverlayClick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (state === "tucked") {
+      untuck();
+      return;
+    }
+    tuck(chosenSide());
+  };
+
+  const onOverlayContext = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    togglePicker();
+  };
+
+  const onOverlayKey = (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    onOverlayClick(event);
+  };
+
+  const buildOverlay = () => {
+    const overlay = document.createElementNS(XHTML_NS, "div");
+    overlay.id = OVERLAY_ID;
+    overlay.setAttribute("role", "button");
+    overlay.setAttribute("tabindex", "0");
+    overlay.setAttribute("tooltip", "Tuck away · right-click for where");
+    const arrow = document.createElementNS(XHTML_NS, "span");
+    arrow.className = "pip-tuck-away-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    const label = document.createElementNS(XHTML_NS, "span");
+    label.className = "pip-tuck-away-label";
+    label.textContent = "Tuck Away";
+    overlay.append(arrow, label);
+    overlay.addEventListener("click", onOverlayClick);
+    overlay.addEventListener("contextmenu", onOverlayContext);
+    overlay.addEventListener("keydown", onOverlayKey);
+    return overlay;
+  };
+
+  /** Build, place, or take away the strip to match the settings and the state. */
+  const updateOverlay = () => {
+    const controls = document.getElementById("controls");
+    if (!controls) {
+      return;
+    }
+    ensureOverlayStyle();
+    let overlay = document.getElementById(OVERLAY_ID);
+    let picker = pickerElement();
+    if (!pref(PREF_OVERLAY, true)) {
+      overlay?.remove();
+      picker?.remove();
+      closePicker();
+      return;
+    }
+    if (!overlay) {
+      overlay = buildOverlay();
+      controls.insertBefore(overlay, controls.firstChild);
+    }
+    if (!picker) {
+      picker = buildPicker();
+      controls.append(picker);
+    }
+    overlay.dataset.side = chosenSide();
+    const hide = state === "tucked" || !!document.fullscreenElement;
+    overlay.hidden = hide;
+    if (hide) {
+      closePicker();
+    }
+  };
+
+  const onOverlayPref = (subject, topic) => {
+    if (topic === "nsPref:changed") {
+      updateOverlay();
+    }
+  };
+
+  Services.prefs.addObserver(PREF_OVERLAY, onOverlayPref);
+  Services.prefs.addObserver(PREF_DIRECTION, onOverlayPref);
+  updateOverlay();
+  // #controls can arrive after this script in a freshly opened player.
+  for (const delay of [120, 400, 1000]) {
+    settleTimers.push(setTimeout(updateOverlay, delay));
+  }
+
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
     instantTuck(nearestSide());
@@ -664,6 +914,12 @@
     try {
       document.removeEventListener("click", onZiaClick, true);
       document.getElementById(ZIA_STYLE_ID)?.remove();
+      document.getElementById(OVERLAY_ID)?.remove();
+      document.getElementById(PICKER_ID)?.remove();
+      document.getElementById(OVERLAY_STYLE_ID)?.remove();
+      document.removeEventListener("mousedown", onDocumentMouseDown, true);
+      Services.prefs.removeObserver(PREF_OVERLAY, onOverlayPref);
+      Services.prefs.removeObserver(PREF_DIRECTION, onOverlayPref);
     } catch (err) {
       log("could not remove the Zia button style", err);
     }

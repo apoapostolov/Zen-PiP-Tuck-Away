@@ -17,6 +17,40 @@
     "defaultValue": true
   },
   {
+    "property": "pip-tuck-away.overlay",
+    "label": "Tuck Control Overlay",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "pip-tuck-away.direction",
+    "label": "Tuck Direction",
+    "type": "dropdown",
+    "defaultValue": "smart",
+    "options": [
+      {
+        "label": "Smart",
+        "value": "smart"
+      },
+      {
+        "label": "Right",
+        "value": "right"
+      },
+      {
+        "label": "Top",
+        "value": "top"
+      },
+      {
+        "label": "Left",
+        "value": "left"
+      },
+      {
+        "label": "Bottom",
+        "value": "bottom"
+      }
+    ]
+  },
+  {
     "property": "pip-tuck-away.shortcut",
     "label": "Toggle with **Ctrl+Alt+T**",
     "type": "checkbox",

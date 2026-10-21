@@ -14,11 +14,13 @@ The edge is chosen when you tuck: whichever of left, right, or bottom the window
 
 ## Settings
 
-The mod adds one section to its settings dialog in Sine, with four switches.
+The mod adds one section to its settings dialog in Sine.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Tuck away on right click | on | Right-clicking the player toggles tucked and untucked |
+| Tuck Control Overlay | on | Shows the tuck strip on the player, with an arrow and the words Tuck Away |
+| Tuck Direction | Smart | Which edge the strip tucks into: Smart, Right, Top, Left or Bottom |
 | Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
 | Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
@@ -29,6 +31,20 @@ The peek is off by default on purpose. Once it is on, the strip stops being a st
 The reveal is sticky by design. It stays up while the pointer is anywhere in a band around the player, including the area the player slides into, and a departure is only believed after a fifth of a second, so grazing an edge or crossing a gap does not collapse it. A pointer resting still on the video keeps it open without limit, which is the case a naive hover check gets wrong: the window moves underneath a pointer that has not moved at all, and the document can stop reporting hover state mid-slide. The mod judges that from the pointer's last screen position and the document's own hover state together, never from whether the pointer has moved recently. Dragging the strip out by hand releases the tuck instead of fighting over the position, and fullscreen is left alone entirely.
 
 Auto tuck is off by default because it changes where the player starts life. Turn it on and the very first thing you see when a video goes picture-in-picture is the strip at the edge, chosen as the edge nearest where the player would normally have appeared. Firefox restores a player window's last position and size just after it opens, so the mod re-applies the tucked position a few times across the first third of a second to win that race. A single frame at the old spot can still slip through on a slow start, which is the price of doing this from a script rather than inside the browser's own window code.
+
+## The tuck strip
+
+The player carries a strip that tucks it. It is not a small pill beside the controls: it is a band of the video itself, 20% of the width and 90% of the height along the side it will tuck into, and 90% by 20% across the top or the bottom. Inside it are an arrow pointing at that edge and the words Tuck Away, at 45% opacity until you hover, then solid, on a faint dark wash.
+
+Press it and the player parks against that edge. Right-click it and a small map of the directions opens, the same idea as Zia's picker: Smart in the middle, with Right, Top, Left and Bottom around it, the current choice lit. Pick one and the strip moves to that side, and the setting is saved, so it holds for the next video too.
+
+**Smart** means the edge the player is nearest to when it has no fixed direction. It measures from the player's centre to all four edges, so a player sitting in the top half of the screen goes up rather than sideways.
+
+The strip is a child of Firefox's own `#controls` layer, placed before everything else in it, so the control bar, the close and minimise buttons and Zia's own controls all sit above it and keep their clicks. Where those cover it, they win; the rest of the strip is the tuck target.
+
+With **Tuck Control Overlay** off there is no strip at all, and tucking falls back to right-click, the chord and auto tuck. The strip also steps aside while the player is tucked or in fullscreen, because the strip at the edge is the way back.
+
+The overlay is on by default and works whether or not Zia is installed. When Zia is there, both its button and this strip do the same thing, since both end up in the same tuck.
 
 ## Player widget integration
 
