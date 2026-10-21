@@ -84,6 +84,7 @@ Requirements and behaviour worth knowing:
 
 - Python 3 must be installed, because the helper is the registration host. Nothing else is downloaded.
 - If another application already owns Ctrl+Alt+T, registration fails, the helper writes the Windows error to `status.json`, and the mod keeps working inside Zen only. Nothing breaks quietly without a trace.
+- When Zen already has focus the helper stands aside and lets the browser handle the chord, so the normal case has no delay. The file round trip only happens when some other application is in front, which is the case the helper exists for.
 - The mod never launches the helper. What starts on your machine stays your decision.
 - `stop` in the state folder makes the helper exit; it also exits when the registration is lost.
 

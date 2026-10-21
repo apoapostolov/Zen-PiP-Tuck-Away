@@ -53,6 +53,20 @@ user32.PeekMessageW.argtypes = (
     wintypes.UINT,
 )
 user32.PeekMessageW.restype = wintypes.BOOL
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.QueryFullProcessImageNameW.argtypes = (
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    wintypes.LPWSTR,
+    ctypes.POINTER(wintypes.DWORD),
+)
+kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+kernel32.CloseHandle.restype = wintypes.BOOL
 
 
 def state_dir() -> str:
@@ -118,6 +132,41 @@ def fire(seq: int) -> int:
     return seq
 
 
+def foreground_process_name() -> str:
+    """Name of the executable that owns the foreground window, lowercased."""
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return ""
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if not pid.value:
+        return ""
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(1024)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if not kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return ""
+        return os.path.basename(buffer.value).lower()
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def zen_has_focus() -> bool:
+    """
+    True when a Zen window owns the keyboard.
+
+    The registration is global, so it also swallows the chord inside Zen. There
+    the browser can handle it itself, without the file round trip, so this is
+    where the helper stands aside. If the mod ever stops listening, the chord
+    simply does nothing in Zen, which is the quieter failure.
+    """
+    return foreground_process_name().startswith("zen")
+
+
 def register() -> bool:
     return bool(
         user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_T)
@@ -126,6 +175,10 @@ def register() -> bool:
 
 def main(argv: list[str]) -> int:
     selftest = "--selftest" in argv
+
+    if "--check-foreground" in argv:
+        print(json.dumps({"foreground": foreground_process_name(), "zen": zen_has_focus()}))
+        return 0
 
     if not selftest:
         if single_instance() is None:
@@ -155,7 +208,8 @@ def main(argv: list[str]) -> int:
                 if message.message == WM_QUIT:
                     return 0
                 if message.message == WM_HOTKEY and message.wParam == HOTKEY_ID:
-                    seq = fire(seq)
+                    if not zen_has_focus():
+                        seq = fire(seq)
             time.sleep(POLL_SECONDS)
     finally:
         user32.UnregisterHotKey(None, HOTKEY_ID)
