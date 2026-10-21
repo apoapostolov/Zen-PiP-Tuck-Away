@@ -16,6 +16,7 @@ function mk(prefsIn = {}, opts = {}) {
   let unloadListener = null;
   const files = new Map();
   const intervals = [];
+  const frames = [];
   const prefObservers = [];
 
   const prefs = { ...prefsIn };
@@ -146,6 +147,9 @@ function mk(prefsIn = {}, opts = {}) {
         return {
           putImageData: (data) => {
             node.painted = data;
+          },
+          drawImage: (source, x, y, width, height) => {
+            node.drawn = { source, x, y, width, height };
           },
         };
       },
@@ -338,6 +342,10 @@ function mk(prefsIn = {}, opts = {}) {
     innerHeight: 1080,
     location: { href: "chrome://browser/content/browser.xhtml" },
     gBrowser: { selectedBrowser: selected, tabContainer: tabStrip },
+    requestAnimationFrame: (fn) => frames.push(fn),
+    cancelAnimationFrame: (id) => {
+      frames[id - 1] = null;
+    },
     document: {
       hasFocus: () => focused,
       querySelector: (sel) => (sel === "#zen-media-controls-toolbar" ? mediaBar : null),
@@ -462,6 +470,13 @@ function mk(prefsIn = {}, opts = {}) {
     setInterval: (fn) => {
       intervals.push(fn);
       return intervals.length;
+    },
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    },
+    cancelAnimationFrame: (id) => {
+      frames[id - 1] = null;
     },
     clearInterval: (id) => {
       intervals[id - 1] = null;
@@ -598,6 +613,14 @@ function mk(prefsIn = {}, opts = {}) {
     },
     async tick() {
       for (const fn of [...intervals]) {
+        if (fn) fn();
+      }
+      // A frame callback runs once per registration, as it would in a window:
+      // the loop re-registers itself for the frame after this one.
+      const upto = frames.length;
+      for (let i = 0; i < upto; i++) {
+        const fn = frames[i];
+        frames[i] = null;
         if (fn) fn();
       }
       // Let the poller's awaits settle.
@@ -1070,11 +1093,14 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("the panel appears with the first frame", t.mirror().hasAttribute("waiting"), false);
   check("it sits above the card, at the card's width", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
   check("inside the widget's own box, six pixels in from its left edge", t.mirror().style.left, "26px");
+  // 162 for the panel, 6px above and below it, and the 120px the card carries
+  // beyond the 80px its collapsed box already counted.
   check(
     "and the widget makes exactly that much room",
     t.barStyle.props["--zen-media-collapsed-height"],
-    "calc(80px + 270px)"
+    "calc(80px + 294px)"
   );
+  check("with the toolbar's own height animation switched off", t.barStyle.props.transition, "none");
   check("with nothing added to the card", t.dockSpacers.length, 0);
   check("and the play button says pause", t.mirror().querySelector(".pip-tuck-away-mirror-button path").getAttribute("d").startsWith("M4 2h4"), true);
   check("a click on the picture is a play/pause", (t.mirror().firstElementChild.fire("click", {}) ?? true) && mirrorActor.sent.some((m) => m.name === "PipMirror:Control" && m.data.action === "toggle"), true);
@@ -1100,6 +1126,49 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
     t.barStyle.props["--zen-media-collapsed-height"],
     "calc(80px + 198px)"
   );
+}
+
+// 30h2. the widget's height moves with the card, on the frame the card moves
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 25 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(25, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(25, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  const atRest = t.barStyle.props["--zen-media-collapsed-height"];
+  // The card expands on hover over 300ms. Whatever height it is at this frame,
+  // the room follows it in the same frame, which is what keeps the panel six
+  // pixels above the card rather than chasing it.
+  t.dockCardEl.rect = { left: 20, top: 400, width: 300, height: 235 };
+  await t.tick();
+  const midway = t.barStyle.props["--zen-media-collapsed-height"];
+  check("at rest", atRest, "calc(80px + 294px)");
+  check("and partway through the card's own expansion", midway, "calc(80px + 329px)");
+  check("the widget gave up exactly the card's growth", 329 - 294, 235 - 200);
+  check("and the panel did not move sideways", t.mirror().style.left, "26px");
+}
+
+// 30i. a frame from the page is drawn as it is, and closed
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 27 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(27, { width: 1920, height: 1080, paused: false }, mirrorActor);
+  const frame = {
+    displayWidth: 1920,
+    displayHeight: 1080,
+    closed: false,
+    close() {
+      this.closed = true;
+    },
+  };
+  t.controller().mirrorVideoFrame(27, { frame, time: 4, duration: 120, paused: false });
+  const canvas = t.mirror().firstElementChild;
+  check("the panel shows it", t.mirror().hasAttribute("waiting"), false);
+  check("drawn at the video's own shape", [canvas.width, canvas.height], [480, 270]);
+  check("the frame was drawn", canvas.drawn.width, 480);
+  check("and then closed, so it is not held", frame.closed, true);
 }
 
 // 30e2. a video that never produces a picture becomes a player window
@@ -1366,6 +1435,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   t.tabStrip.fire("TabClose", { linkedBrowser: A.browser });
   check("the panel is gone", t.mirror(), null);
   check("and the room went with it", t.barStyle.props["--zen-media-collapsed-height"], undefined);
+  check("with the toolbar's own animation handed back", t.barStyle.props.transition, undefined);
 }
 
 // 32. the widget never touches the player's own place or size

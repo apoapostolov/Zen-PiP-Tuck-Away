@@ -470,7 +470,6 @@
   const PANEL_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
   const PANEL_INSET = 6; // px between the panel and the edges of its slot
   const PANEL_HEIGHT_VAR = "--zen-media-collapsed-height";
-  const PANEL_GROWTH_MAX = 96; // the most the card's hover rows can add, as slack
 
   // The bar's own height, read once before any room has been made for the panel,
   // so the room is added to the real thing rather than to a guess.
@@ -478,8 +477,11 @@
 
   const releasePanelRoom = () => {
     panelBase = null;
+    lastPanelNote = "";
     try {
-      window.document?.querySelector?.(MEDIA_BAR)?.style?.removeProperty?.(PANEL_HEIGHT_VAR);
+      const style = window.document?.querySelector?.(MEDIA_BAR)?.style;
+      style?.removeProperty?.(PANEL_HEIGHT_VAR);
+      style?.removeProperty?.("transition");
     } catch (err) {
       // No bar to put back.
     }
@@ -496,7 +498,7 @@
    * then inside the widget rather than floating over the sidebar, and it travels
    * with the box as the card expands on hover.
    */
-  const reservePanelRoom = (bar, height, cardHeight) => {
+  const reservePanelRoom = (bar, room) => {
     try {
       const style = bar?.style;
       if (!style?.setProperty) {
@@ -505,13 +507,12 @@
       if (panelBase === null) {
         panelBase = Math.round(bar.getBoundingClientRect?.().height ?? 0) || 0;
       }
-      // The base height already holds the card, so only what the card grows by
-      // when it is hovered has to be added, on top of the panel itself. Adding
-      // the card's whole height reserves its room twice and leaves a hole
-      // between the panel and the card that nobody asked for.
-      const grown = Math.max(0, Math.min(Math.round(cardHeight - panelBase), PANEL_GROWTH_MAX));
-      const room = Math.round(height + PANEL_INSET * 2 + grown);
-      style.setProperty(PANEL_HEIGHT_VAR, `calc(${panelBase}px + ${room}px)`);
+      // The toolbar's own height transition is switched off while the panel is
+      // in the widget. The height is written from the card's height on every
+      // frame instead, so the box and the card move together rather than the
+      // box chasing the card three hundred milliseconds behind it.
+      style.setProperty("transition", "none");
+      style.setProperty(PANEL_HEIGHT_VAR, `calc(${panelBase}px + ${Math.round(room)}px)`);
     } catch (err) {
       log("could not make room for the panel", err);
     }
@@ -589,6 +590,7 @@
   // Long enough for a slow first frame, short enough that a video which cannot
   // be copied is a player window rather than an empty box.
   const MIRROR_PATIENCE = 2000;
+  const MIRROR_MAX_DIMENSION = 480; // the long edge of a frame drawn in the sidebar
   const XHTML_NS = "http://www.w3.org/1999/xhtml";
   const PLAY_ICON = "M4 2l12 8-12 8z";
   const PAUSE_ICON = "M4 2h4v14H4zM10 2h4v14h-4z";
@@ -603,7 +605,8 @@
   let mirrorPainted = false; // this tab has sent a picture
   let boxHasPicture = false; // the canvas holds one, whoever sent it
   let mirrorTimer = 0; // gives up when the tab on screen sends nothing
-  let panelWatch = 0; // the panel is measured with the widget, not once
+  let panelWatch = 0; // the frame the panel is measured on
+  let lastPanelNote = ""; // what the panel was last placed at, so idle frames write nothing
   let heldRequest = null; // the request the panel stands in for
   let lastMirrored = null; // the tab it was showing when the browser lost focus
   let lastSelected = null; // the tab that was in front before this one
@@ -801,10 +804,23 @@
     const width = Math.max(80, Math.round(cardRect.width - PANEL_INSET * 2));
     const limit = Math.round((window.innerHeight || 800) * PANEL_MAX_SHARE);
     const height = Math.max(45, Math.min(Math.round(width / mirrorAspect), limit));
-    reservePanelRoom(bar, height, cardRect.height);
+    // The panel's bottom is six pixels above the card's top edge, so the room
+    // the widget gives up is the panel, both insets, and whatever the card is
+    // carrying beyond the height its collapsed box already counted. The card's
+    // height is read as it is, mid-animation included, which is what keeps the
+    // two moving together.
+    const base = panelBase ?? (Math.round(barRect.height) || 0);
+    const room = height + PANEL_INSET * 2 + Math.max(0, Math.round(cardRect.height) - base);
+    const left = Math.round(cardRect.left - barRect.left + PANEL_INSET);
+    const note = `${left},${width}x${height} room=${room}`;
+    if (note === lastPanelNote) {
+      return;
+    }
+    lastPanelNote = note;
+    reservePanelRoom(bar, room);
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
-    box.style.left = `${Math.round(cardRect.left - barRect.left + PANEL_INSET)}px`;
+    box.style.left = `${left}px`;
   };
 
   /**
@@ -819,18 +835,70 @@
     if (panelWatch) {
       return;
     }
-    panelWatch = setInterval(() => {
-      if (mirrorBox()) {
-        placeMirror();
-      }
-    }, 400);
+    const follow = () => {
+      panelWatch = window.requestAnimationFrame(follow);
+      placeMirror();
+    };
+    panelWatch = window.requestAnimationFrame(follow);
   };
 
   const stopPanelWatch = () => {
     if (panelWatch) {
-      clearInterval(panelWatch);
+      window.cancelAnimationFrame?.(panelWatch);
       panelWatch = 0;
     }
+    lastPanelNote = "";
+  };
+
+  /**
+   * A frame the page itself produced, drawn straight into the sidebar's canvas.
+   *
+   * A VideoFrame is transferable, so nothing is copied pixel by pixel: the
+   * picture is the video's own, at the video's own rate, and the canvas scales
+   * it down as it draws. The frame is closed either way, because a frame that
+   * is never closed is a frame that is never freed.
+   */
+  const drawMirrorVideoFrame = (frame) => {
+    const box = mirrorBox();
+    const canvas = box?.firstElementChild;
+    if (!box || !canvas || !frame) {
+      return;
+    }
+    const vw = frame.displayWidth || frame.codedWidth || 0;
+    const vh = frame.displayHeight || frame.codedHeight || 0;
+    if (!vw || !vh) {
+      frame.close?.();
+      return;
+    }
+    const scale = Math.min(1, MIRROR_MAX_DIMENSION / Math.max(vw, vh));
+    const width = Math.max(2, Math.round((vw * scale) / 2) * 2);
+    const height = Math.max(2, Math.round((vh * scale) / 2) * 2);
+    mirrorAspect = vw / vh;
+    if (!mirrorPainted) {
+      mirrorPainted = true;
+      boxHasPicture = true;
+      if (mirrorTimer) {
+        clearTimeout(mirrorTimer);
+        mirrorTimer = 0;
+      }
+      box.removeAttribute("waiting");
+      placeMirror();
+      startPanelWatch();
+    }
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      mirrorContext = null;
+    }
+    if (!mirrorContext) {
+      mirrorContext = canvas.getContext("2d", { alpha: false });
+    }
+    try {
+      mirrorContext.drawImage(frame, 0, 0, width, height);
+    } catch (err) {
+      log("a frame from the page could not be drawn", err);
+    }
+    frame.close?.();
   };
 
   const drawMirrorFrame = (frame) => {
@@ -1147,6 +1215,23 @@
         duration: data?.duration ?? 0,
       };
       showMirrorState();
+    },
+    mirrorVideoFrame(id, data) {
+      if (isPendingTab(id)) {
+        adoptPending();
+      } else if (id !== tabIdOf(mirrorBrowser)) {
+        data?.frame?.close?.();
+        return;
+      }
+      drawMirrorVideoFrame(data?.frame);
+      if (data) {
+        mirrorState = {
+          paused: !!data.paused,
+          time: data.time ?? mirrorState.time,
+          duration: data.duration ?? mirrorState.duration,
+        };
+        showMirrorState();
+      }
     },
     mirrorFrame(id, frame) {
       if (isPendingTab(id)) {

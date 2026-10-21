@@ -7,6 +7,21 @@
  * paused or touched: the page keeps playing it, the page keeps its sound, and
  * nothing is loaded twice.
  *
+ * Two ways of getting the picture out of the page, best first:
+ *
+ *  - A real frame stream. `video.captureStream()` fed into a
+ *    `MediaStreamTrackProcessor` yields `VideoFrame` objects, which are
+ *    transferable, so the sidebar draws the frame the page is showing rather
+ *    than a copy of it. Nothing is read back on the CPU, the frames are not
+ *    re-encoded, and the rate is the video's own rate.
+ *  - A canvas copy, for a build without that API: the video is drawn into an
+ *    offscreen canvas and the pixels are read back and sent. Slower, and about
+ *    twenty frames a second is what it can manage.
+ *
+ * Either way one still is sent the moment the copy starts, so a paused video
+ * has a picture at once and a stream that has nothing to send yet is not an
+ * empty panel.
+ *
  * A mirror is not Picture-in-Picture. No player window is opened while the
  * browser is in front, so the browser's own picture-in-picture keeps its size,
  * its place and its tucked edge, and it is what appears the moment the browser
@@ -19,8 +34,8 @@
  */
 
 const MAX_DIMENSION = 480; // the long edge of a copied frame
-const FRAME_MS = 50; // a preview needs about twenty frames a second
-const STILL_MS = 500; // a paused video still refreshes now and then
+const FRAME_MS = 50; // a copied preview manages about twenty frames a second
+const STREAM_MS = 24; // a frame stream needs no throttle beyond the IPC hop
 
 export class PipMirrorChild extends JSWindowActorChild {
   #video = null;
@@ -30,6 +45,8 @@ export class PipMirrorChild extends JSWindowActorChild {
   #ctx = null;
   #lastSent = 0;
   #lastStill = -1;
+  #mode = ""; // "frames" for the stream, "copy" for the canvas
+  #reader = null; // the frame stream's reader, when there is one
 
   receiveMessage(message) {
     switch (message.name) {
@@ -86,17 +103,110 @@ export class PipMirrorChild extends JSWindowActorChild {
       paused: video.paused,
       time: video.currentTime,
       duration: Number.isFinite(video.duration) ? video.duration : 0,
+      mode: "pending",
     });
     if (video.mediaKeys) {
       this.#stop();
       return;
     }
+    // A picture straight away, whichever way the frames arrive after it: a
+    // paused video has one, and a stream has nothing to send until it moves.
+    this.#lastStill = video.paused ? video.currentTime : -1;
+    this.#copy(video);
+    this.#mode = this.#openStream(video) ? "frames" : "copy";
+    this.#announce(video);
     this.#loop();
+  }
+
+  /**
+   * The video's own frames, straight through.
+   *
+   * A VideoFrame is transferable, so the sidebar draws the frame the page is
+   * showing: no readback, no re-encode, and no twenty-a-second ceiling.
+   */
+  #openStream(video) {
+    try {
+      const win = this.contentWindow;
+      if (typeof win?.MediaStreamTrackProcessor !== "function") {
+        return false;
+      }
+      const stream = video.captureStream?.();
+      const track = stream?.getVideoTracks?.()[0];
+      if (!track) {
+        return false;
+      }
+      const processor = new win.MediaStreamTrackProcessor({ track });
+      this.#reader = processor.readable.getReader();
+      this.#pump();
+      return true;
+    } catch (err) {
+      this.#reader = null;
+      return false;
+    }
+  }
+
+  #pump() {
+    const reader = this.#reader;
+    if (!reader) {
+      return;
+    }
+    reader
+      .read()
+      .then(({ value, done }) => {
+        if (done || !this.#running || !this.#reader) {
+          value?.close?.();
+          return;
+        }
+        const frame = value;
+        const now = Date.now();
+        if (now - this.#lastSent < STREAM_MS) {
+          // The sidebar is not keeping up. Drop it rather than queue it.
+          frame.close?.();
+          this.#pump();
+          return;
+        }
+        this.#lastSent = now;
+        this.#sendFrame(frame);
+        this.#pump();
+      })
+      .catch(() => {
+        // The stream ended with the video; nothing to do.
+      });
+  }
+
+  #sendFrame(frame) {
+    const video = this.#video;
+    try {
+      this.sendAsyncMessage(
+        "PipMirror:VideoFrame",
+        {
+          frame,
+          time: (frame.timestamp ?? 0) / 1e6,
+          duration: Number.isFinite(video?.duration) ? video.duration : 0,
+          paused: !!video?.paused,
+        },
+        [frame]
+      );
+    } catch (err) {
+      // The frame cannot travel, so this build falls back to copying pixels.
+      frame.close?.();
+      this.#mode = "copy";
+    }
   }
 
   #stop() {
     const wasRunning = this.#running;
     this.#running = false;
+    const reader = this.#reader;
+    this.#reader = null;
+    if (reader) {
+      try {
+        Promise.resolve(reader.cancel()).catch(() => {});
+      } catch (err) {
+        // The stream went with the video.
+      }
+    }
+    this.#mode = "";
     if (this.#frame) {
       try {
         this.contentWindow?.cancelAnimationFrame?.(this.#frame);
@@ -122,6 +232,16 @@ export class PipMirrorChild extends JSWindowActorChild {
     this.#frame = this.contentWindow.requestAnimationFrame(this.#loop);
     const video = this.#video;
     if (!video || video.readyState < 2 || !video.videoWidth) {
+      return;
+    }
+    if (this.#mode === "frames") {
+      // The stream carries the picture while it moves. This only keeps a held
+      // pause, or a seek inside one, honest.
+      if (!video.paused || this.#lastStill === video.currentTime) {
+        return;
+      }
+      this.#lastStill = video.currentTime;
+      this.#copy(video);
       return;
     }
     const now = Date.now();

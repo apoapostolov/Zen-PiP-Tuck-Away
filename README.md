@@ -42,7 +42,7 @@ Hovering the strip slides the whole player back into view when the peek setting 
 
 Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **PiP uses the widget** on, a video in another tab is shown in that widget, and no player window is opened at all.
 
-The widget shows a copy of the picture, not a player. A content actor in the page copies the video's frames into a small canvas, which is drawn in the sidebar at the widget's width and the video's own shape, in room made inside the toolbar itself. The video never moves: the page keeps playing it, the page keeps its sound, and nothing is loaded twice. A click on the picture plays or pauses, and the two small buttons that appear on hover do the same and open a real player if you would rather have one.
+The widget shows the video, not a player. A content actor in the page hands the sidebar the video's own frames, which are drawn at the widget's width and the video's shape, in room made inside the toolbar itself. The video never moves: the page keeps playing it, the page keeps its sound, and nothing is loaded twice. A click on the picture plays or pauses, and the two small buttons that appear on hover do the same and open a real player if you would rather have one.
 
 The panel is pixels in the sidebar, not a window. Nothing in this mod moves a player window any more: the place a player remembers, and whether it was tucked and into which edge, are its own and are never written or restored by the widget. The panel follows the sidebar's own controls instead, at the widget's width and the video's shape, in room made inside the toolbar, and it rides with the card when the card expands on hover.
 
@@ -67,7 +67,7 @@ Nothing is drawn until a real frame has arrived. Until then the panel is not in 
 Two honest limits:
 
 - **Protected video copies as black.** A frame copy of an encrypted stream cannot be read, so when a page reports a media key system the widget steps aside and a normal player window opens instead, at its own remembered place and in its own tucked state, untouched. A tab that turns out to be protected while another tab is already in the widget is left alone rather than blackening the panel. YouTube, Twitch and most sites are fine; a DRM service is not.
-- **A copy costs a little.** Frames are downscaled to 480px on the long edge and sent about twenty times a second, which is nothing on a modern machine but is not free. A paused video sends one frame and then stays quiet.
+- **The picture costs a little.** Frames travel as they are, downscaled to 480px on the long edge as they are drawn, so the rate is the video's own rate. On a build without a frame stream the mod falls back to copying pixels, which manages about twenty frames a second; a paused video sends one frame and then stays quiet either way.
 
 ## Going back to the tab
 
@@ -118,6 +118,16 @@ This mod needs nothing else installed. If [Zia](https://github.com/z1n-k/zia) is
 The player page carries a Content-Security-Policy that blocks inline styles, so the sheet is loaded as a real file. State lives in attributes on the root element.
 
 `pip-tuck-away.trace` writes one line per player request to `pip-tuck-away-trace.log` in your profile, which is how a video that seems to be nowhere gets diagnosed. Set it to false to stop it.
+
+## Tests
+
+Three headless suites run against the shipped files, with no browser:
+
+```
+node tests/browser.test.mjs scripts/pip-tuck-away.uc.js    # the browser window half
+node tests/player.test.mjs scripts/pip-player.uc.js        # the player half
+node tests/child.test.mjs scripts/pip-mirror-child.sys.mjs # the page half of the mirror
+```
 
 ## Credits
 
