@@ -25,7 +25,17 @@
   const SLIVER = 24; // px of window left on screen while tucked
   const MARGIN = 16; // px kept from the screen edge when the window is out
   const GLIDE_MS = 260; // move duration
-  const PEEK_GRACE = 380; // ms without pointer movement before a peek retracts
+  // Hover peek. The pointer can rest still on the revealed video while the
+  // window moves underneath it, so departures are judged from a screen-space
+  // zone around the revealed player plus the document's own hover state.
+  // Pointer idleness is never used as a signal: that is what made the reveal
+  // collapse after a moment of stillness.
+  const PEEK_GRACE = 220; // a departure shorter than this is ignored
+  const PEEK_SETTLE = 280; // departures during the reveal move are ignored
+  const PEEK_POLL = 90; // how often the zone is re-checked while revealed
+  const PEEK_ZONE = 28; // screen-space margin around the revealed player
+  const PEEK_STALE = 30000; // how long a remembered pointer position is trusted
+  const DRIFT_PX = 3; // movement by anyone else that counts as a drag
 
   const root = document.documentElement;
 
@@ -37,10 +47,16 @@
   let home = null;
   let peeked = false;
   let glideId = 0;
-  let lastPointerAt = 0;
-  let watchdog = null;
+  let animating = false;
+  let settleUntil = 0;
+  let revealing = false;
   let settleTimers = [];
   let ziaWarned = false;
+  let leaveTimer = null;
+  let pollTimer = null;
+  let driftTimer = null;
+  /** Screen coordinates of the pointer at its last event, so window moves cannot invalidate them. */
+  let pointer = { x: 0, y: 0, at: 0 };
 
   const pref = (name, fallback) => {
     try {
@@ -157,10 +173,17 @@
     const fromY = window.screenY;
     const dx = x - fromX;
     const dy = y - fromY;
-    if (!dx && !dy) {
+    const finish = () => {
+      animating = false;
+      settleUntil = Date.now() + PEEK_SETTLE;
       done?.();
+    };
+    if (!dx && !dy) {
+      finish();
       return;
     }
+    animating = true;
+    settleUntil = Date.now() + duration + PEEK_SETTLE;
     const start = performance.now();
     const step = (now) => {
       if (id !== glideId) {
@@ -172,7 +195,7 @@
       if (t < 1) {
         requestAnimationFrame(step);
       } else {
-        done?.();
+        finish();
       }
     };
     requestAnimationFrame(step);
@@ -180,12 +203,27 @@
 
   // ---------- state changes
 
+  const clearLeave = () => {
+    if (leaveTimer) {
+      clearTimeout(leaveTimer);
+      leaveTimer = null;
+    }
+  };
+
+  const stopPoll = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  };
+
+  /** Drop a reveal and its timers without moving the window. */
   const stopPeek = () => {
     peeked = false;
-    if (watchdog) {
-      clearInterval(watchdog);
-      watchdog = null;
-    }
+    revealing = false;
+    clearLeave();
+    stopPoll();
+    root.removeAttribute("pip-peeking");
   };
 
   const tuck = (side = null) => {
@@ -254,35 +292,119 @@
     return true;
   };
 
-  /** Slide fully into view while the pointer is on the strip. */
-  const peek = () => {
-    if (state !== "tucked" || peeked || !pref(PREF_HOVER_PEEK, false)) {
+  // ---------- the hover zone
+  //
+  // A reveal has to stay up while the pointer is anywhere near the player,
+  // including the area the player slides into and a margin around it. The
+  // window moves under a pointer that may not move at all, so the last known
+  // pointer position is kept in screen coordinates, which a window move cannot
+  // invalidate, and the document's own hover state is asked directly. Pointer
+  // idleness is never a departure signal.
+
+  const rectNow = () => ({
+    left: window.screenX,
+    top: window.screenY,
+    right: window.screenX + W(),
+    bottom: window.screenY + H(),
+  });
+
+  const rectRevealed = () => {
+    const [x, y] = flushPos(spot);
+    return { left: x, top: y, right: x + W(), bottom: y + H() };
+  };
+
+  /** Union of where the player is and where it is going, plus a margin. */
+  const zone = () => {
+    const now = rectNow();
+    const going = state === "tucked" ? rectRevealed() : now;
+    return {
+      left: Math.min(now.left, going.left) - PEEK_ZONE,
+      top: Math.min(now.top, going.top) - PEEK_ZONE,
+      right: Math.max(now.right, going.right) + PEEK_ZONE,
+      bottom: Math.max(now.bottom, going.bottom) + PEEK_ZONE,
+    };
+  };
+
+  const inZone = (x, y) => {
+    const area = zone();
+    return x >= area.left && x <= area.right && y >= area.top && y <= area.bottom;
+  };
+
+  /** Is the pointer over this document right now? */
+  const hovering = () => {
+    try {
+      return root.matches(":hover");
+    } catch (err) {
+      return false;
+    }
+  };
+
+  /** Keep the reveal while either signal says the pointer is still around. */
+  const stillWanted = () => {
+    if (hovering()) {
+      return true;
+    }
+    return Date.now() - pointer.at < PEEK_STALE && inZone(pointer.x, pointer.y);
+  };
+
+  const startPoll = () => {
+    stopPoll();
+    pollTimer = setInterval(() => {
+      if (!peeked) {
+        stopPoll();
+        return;
+      }
+      // Ignore the move itself and a moment after it, so a window sliding
+      // under a stationary pointer cannot be mistaken for a departure.
+      if (revealing || animating || Date.now() < settleUntil) {
+        return;
+      }
+      if (stillWanted()) {
+        clearLeave();
+        return;
+      }
+      scheduleLeave();
+    }, PEEK_POLL);
+  };
+
+  const reveal = () => {
+    if (state !== "tucked" || peeked || document.fullscreenElement) {
+      return;
+    }
+    if (!pref(PREF_HOVER_PEEK, false)) {
       return;
     }
     peeked = true;
-    lastPointerAt = Date.now();
+    revealing = true;
+    clearLeave();
     root.setAttribute("pip-peeking", "");
-    glide(...flushPos(spot), GLIDE_MS);
-    // Safety net: if the player window misses the leave event (it can when the
-    // window slides under a stationary pointer), retract after the pointer has
-    // been quiet for a while.
-    watchdog = setInterval(() => {
-      if (!peeked) {
-        stopPeek();
-        return;
-      }
-      if (Date.now() - lastPointerAt > PEEK_GRACE) {
-        retract();
-      }
-    }, 100);
+    glide(...flushPos(spot), GLIDE_MS, () => {
+      revealing = false;
+    });
+    startPoll();
   };
 
   const retract = () => {
+    if (!peeked) {
+      return;
+    }
     stopPeek();
-    root.removeAttribute("pip-peeking");
-    if (state === "tucked") {
+    if (state === "tucked" && !document.fullscreenElement) {
       glide(...tuckedPos(spot));
     }
+  };
+
+  /** Give a departure a moment to turn out to be a mistake. */
+  const scheduleLeave = () => {
+    if (leaveTimer) {
+      return;
+    }
+    leaveTimer = setTimeout(() => {
+      leaveTimer = null;
+      if (peeked && !revealing && !animating && !stillWanted()) {
+        retract();
+      }
+    }, PEEK_GRACE);
   };
 
   // ---------- events
@@ -301,21 +423,39 @@
     toggle();
   };
 
-  const onMouseMove = () => {
-    lastPointerAt = Date.now();
+  const rememberPointer = (event) => {
+    if (typeof event?.clientX === "number" && typeof event?.clientY === "number") {
+      pointer = {
+        x: window.screenX + event.clientX,
+        y: window.screenY + event.clientY,
+        at: Date.now(),
+      };
+    }
   };
 
-  const onMouseEnter = () => {
+  const onMouseMove = (event) => {
+    rememberPointer(event);
     if (peeked) {
-      lastPointerAt = Date.now();
+      clearLeave();
+    }
+  };
+
+  const onMouseEnter = (event) => {
+    rememberPointer(event);
+    if (peeked) {
+      clearLeave();
       return;
     }
-    peek();
+    reveal();
   };
 
   const onMouseLeave = () => {
     if (peeked) {
-      retract();
+      // A real departure. Forget where the pointer was so the zone cannot keep
+      // the reveal alive from a stale reading, but do not collapse at once:
+      // the grace period covers a pointer crossing a gap.
+      pointer = { ...pointer, at: 0 };
+      scheduleLeave();
     }
   };
 
@@ -335,10 +475,48 @@
   };
 
   const onResize = () => {
-    // A tuck against the right or bottom edge is measured from the window size.
-    if (state === "tucked" && !peeked) {
-      window.moveTo(...tuckedPos(spot));
+    if (state !== "tucked") {
+      return;
     }
+    // Both positions are measured from the window size, so a resize re-anchors
+    // whichever of the two is on screen.
+    window.moveTo(...(peeked ? flushPos(spot) : tuckedPos(spot)));
+  };
+
+  const onFullscreenChange = () => {
+    if (document.fullscreenElement) {
+      // Geometry means something else in fullscreen, so drop the reveal and do
+      // not start another one until it ends.
+      stopPeek();
+    }
+  };
+
+  /**
+   * While tucked, only this mod moves the window. If it ends up somewhere
+   * else, the strip was dragged out by hand, so stop claiming it is tucked
+   * rather than fighting for the position.
+   */
+  const watchDrift = () => {
+    if (driftTimer) {
+      return;
+    }
+    driftTimer = setInterval(() => {
+      if (state !== "tucked" || peeked || animating || revealing) {
+        return;
+      }
+      if (Date.now() < settleUntil) {
+        return;
+      }
+      const [x, y] = tuckedPos(spot);
+      if (Math.abs(window.screenX - x) <= DRIFT_PX && Math.abs(window.screenY - y) <= DRIFT_PX) {
+        return;
+      }
+      stopPeek();
+      state = "free";
+      spot = null;
+      root.removeAttribute("pip-tucked");
+      home = { x: window.screenX, y: window.screenY };
+    }, 300);
   };
 
   const onPrefChange = (subject, topic, name) => {
@@ -356,7 +534,9 @@
   document.addEventListener("mouseleave", onMouseLeave, true);
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("resize", onResize);
+  document.addEventListener("fullscreenchange", onFullscreenChange);
   Services.prefs.addObserver(PREF_HOVER_PEEK, onPrefChange);
+  watchDrift();
 
   /**
    * Zia's tuck button is styled by `.zia-pip-pill`, which is `display:
@@ -420,6 +600,10 @@
   const destroy = () => {
     stopPeek();
     glideId++;
+    if (driftTimer) {
+      clearInterval(driftTimer);
+      driftTimer = null;
+    }
     for (const id of settleTimers) {
       clearTimeout(id);
     }
@@ -428,6 +612,7 @@
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mouseenter", onMouseEnter, true);
     document.removeEventListener("mouseleave", onMouseLeave, true);
+    document.removeEventListener("fullscreenchange", onFullscreenChange);
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("resize", onResize);
     try {
