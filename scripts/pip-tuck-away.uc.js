@@ -66,7 +66,9 @@
   };
 
   const onKeyDown = (event) => {
-    if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) {
+    // Ctrl+Shift+T, the chord this mod shipped with before the shortcut was
+    // ever taken outside the browser.
+    if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) {
       return;
     }
     if (event.code !== CHORD_CODE && event.key?.toLowerCase() !== CHORD_KEY) {
@@ -78,8 +80,8 @@
     if (editable(event.originalTarget ?? event.target)) {
       return;
     }
-    // Nothing playing: leave the chord alone so it belongs to whoever else
-    // wants Ctrl+Alt+T.
+    // Nothing playing: leave the chord alone, so Ctrl+Shift+T still reopens a
+    // closed tab when there is no player to act on.
     if (!togglePlayer()) {
       return;
     }

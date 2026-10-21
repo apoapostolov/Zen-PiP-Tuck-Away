@@ -52,7 +52,7 @@
   },
   {
     "property": "pip-tuck-away.shortcut",
-    "label": "Toggle with **Ctrl+Alt+T**",
+    "label": "Toggle with **Ctrl+Shift+T**",
     "type": "checkbox",
     "defaultValue": true
   },
