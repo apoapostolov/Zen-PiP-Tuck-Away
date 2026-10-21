@@ -605,7 +605,7 @@
 
   const MIRROR_ACTOR = "PipMirror";
   const MIRROR_RES = "pip-tuck-away";
-  const MIRROR_VERSION = "3"; // bump when either actor file changes
+  const MIRROR_VERSION = "4"; // bump when either actor file changes
   const MIRROR_ID = "pip-tuck-away-mirror";
   // Long enough for a slow first frame, short enough that a video which cannot
   // be copied is a player window rather than an empty box.
