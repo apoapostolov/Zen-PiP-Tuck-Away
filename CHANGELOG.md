@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- When YouTube goes to the next video, the player keeps its place instead of
+  jumping to the bottom right.
+
 ## 1.0.0 (2026-10-22)
 
 First public release for Zen Browser. Tuck a floating video into a screen edge

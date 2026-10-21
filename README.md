@@ -50,7 +50,9 @@ clearly in the strip.
 
 The player remembers where you leave it. Keep **Default PiP size** and
 **Default PiP location** on **Remember Last**, or choose a fixed size and location.
-Choosing a location makes the player open tucked at that spot.
+Choosing a location makes the player open tucked at that spot. When YouTube
+goes to the next video, the player keeps that place instead of jumping to the
+bottom right.
 
 See the [settings guide](docs/settings.md) for all options and defaults.
 

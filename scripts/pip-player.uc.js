@@ -1964,13 +1964,15 @@
     }
   };
 
-  // #controls can arrive after this script in a freshly opened player.
+  // #controls can arrive after this script in a freshly opened player, and so
+  // can Firefox's own resizeToVideo, which is why the wrap is retried here.
   removeMinimize();
   for (const delay of [120, 400, 1000]) {
     settleTimers.push(
       setTimeout(() => {
         updateOverlay();
         removeMinimize();
+        wrapVideoResize();
       }, delay)
     );
   }
@@ -2137,9 +2139,63 @@
     applyDefaultPlace();
   };
 
+  /**
+   * YouTube (and anything else that swaps the video inside an open player)
+   * fires a resize on the video. Firefox answers with `resizeToVideo(fitToScreen)`,
+   * and `fitToScreen` always parks the window in the bottom right corner. The
+   * size of the next video is honest; the place is not. Keep the size, keep the
+   * place the player already has, and if it is tucked, re-anchor the strip.
+   */
+  const keepPlaceOnVideoResize = (rect) => {
+    if (!rect || document.fullscreenElement) {
+      return false;
+    }
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+    if (!width || !height) {
+      return false;
+    }
+    const x0 = window.screenX;
+    const y0 = window.screenY;
+    try {
+      window.resizeTo(width, height);
+    } catch (err) {
+      return false;
+    }
+    if (state === "tucked" && spot) {
+      moveWindow(...(peeked ? flushPos(spot) : tuckedPos(spot)));
+      return true;
+    }
+    const b = screenBox();
+    const x = clamp(x0, b.left + MARGIN, Math.max(b.left + MARGIN, b.right - width - MARGIN));
+    const y = clamp(y0, b.top + MARGIN, Math.max(b.top + MARGIN, b.bottom - height - MARGIN));
+    moveWindow(x, y);
+    return true;
+  };
+
+  const wrapVideoResize = () => {
+    const take = (owner, name) => {
+      if (!owner || typeof owner[name] !== "function" || owner[name].__pipTuckAway) {
+        return;
+      }
+      const original = owner[name].bind(owner);
+      const wrapped = (rect) => {
+        if (keepPlaceOnVideoResize(rect)) {
+          return;
+        }
+        original(rect);
+      };
+      wrapped.__pipTuckAway = true;
+      owner[name] = wrapped;
+    };
+    take(window, "resizeToVideo");
+    take(window.Player, "resizeToVideo");
+  };
+
   ensureBadge();
   applyWidth();
   applyOpenDefaults();
+  wrapVideoResize();
 
   // One timer for the life of the window: a size read and four subtractions
   // every 200ms, which is what notices a player dragged past an edge.

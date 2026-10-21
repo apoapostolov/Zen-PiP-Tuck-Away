@@ -26,6 +26,8 @@ screen to keep the player visible.
 
 Both settings default to **Remember Last**. Leave them there to keep using the
 player's remembered size and position, including a position saved while tucked.
+A video that swaps inside the open player, such as YouTube going to the next
+one, keeps that place too.
 
 **Default PiP size** also offers Very Small (200px wide), Small (280px), Medium
 (380px), Large (520px), and Very Large (680px). Each preserves the video's

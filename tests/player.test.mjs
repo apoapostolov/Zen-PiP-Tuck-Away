@@ -327,6 +327,16 @@ function mk(prefsIn = {}, opts = {}) {
       window.outerHeight = h;
       resizes.push([w, h]);
     },
+    resizeToVideo(rect) {
+      window.resizeTo(rect.width, rect.height);
+      window.moveTo(rect.left, rect.top);
+    },
+    Player: {
+      resizeToVideo(rect) {
+        window.resizeTo(rect.width, rect.height);
+        window.moveTo(rect.left, rect.top);
+      },
+    },
     dispatchEvent(event) {
       dispatched.push(event);
       return true;
@@ -2031,6 +2041,38 @@ for (const r of results) {
   check("and stays where it was", t.pos(), [400, 300]);
 }
 
+
+// ---------- a video swap keeps the player's place
+
+// 115. YouTube's next video resizes the player but does not send it to the corner
+{
+  const t = mk({}, { x: 700, y: 300 });
+  t.window.resizeToVideo({ left: 1524, top: 810, width: 480, height: 270 });
+  check("the next video is given its own size", t.size(), [480, 270]);
+  check("and the player stays where it was", t.pos(), [700, 300]);
+  check("the platform's own bottom-right park is ignored", t.pos()[0] !== 1524, true);
+}
+
+// 116. a tucked player keeps its strip through a video swap
+{
+  const t = mk({ "pip-tuck-away.auto-tuck": true, "pip-tuck-away.home": "700,300" }, { x: 700, y: 300 });
+  t.flush();
+  check("tucked to begin with", t.api.isTucked(), true);
+  const before = t.pos();
+  t.window.resizeToVideo({ left: 1524, top: 810, width: 480, height: 270 });
+  check("the strip is still on its edge", t.api.isTucked(), true);
+  check("and it did not jump to the bottom right", t.pos()[0] !== 1524, true);
+  check("the place it came from is still remembered", String(t.getPref("pip-tuck-away.home")), "700,300");
+  check("the strip moved only as much as the new size asked", t.pos()[1], before[1]);
+}
+
+// 117. a player near the right edge is clamped back on screen, not parked
+{
+  const t = mk({}, { x: 1600, y: 100, width: 380, height: 214 });
+  t.window.resizeToVideo({ left: 1524, top: 810, width: 480, height: 270 });
+  check("it grew to the next video's size", t.size(), [480, 270]);
+  check("and stayed on screen rather than hanging off it", t.pos(), [1920 - 480 - 16, 100]);
+}
 
 // ---------- Zia's minimize button, and Zia's tuck against our peek
 
