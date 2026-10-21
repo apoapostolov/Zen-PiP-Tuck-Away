@@ -475,8 +475,52 @@
   };
 
   /** Drop a reveal and its timers without moving the window. */
+  const ZIA_TUCK_PREF = "zia.pip.tuck";
+  let ziaTuckHeld = null; // what Zia's own setting was before a peek took it
+
+  /**
+   * A peek slides the window out of its strip. Zia's tuck, if it is on, reads
+   * that slide as a drag towards an edge and tucks the player straight back, so
+   * the reveal snaps shut. Zia re-reads its own setting on every tick, so
+   * holding it off for as long as the peek lasts is enough, and it is handed
+   * back the moment the peek ends. Nothing happens when Zia is not installed.
+   */
+  const holdZiaTuck = () => {
+    try {
+      if (Services.prefs.getPrefType(ZIA_TUCK_PREF) === 0) {
+        return false;
+      }
+      if (ziaTuckHeld !== null) {
+        return true;
+      }
+      ziaTuckHeld = Services.prefs.getBoolPref(ZIA_TUCK_PREF, false);
+      if (ziaTuckHeld) {
+        Services.prefs.setBoolPref(ZIA_TUCK_PREF, false);
+      }
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+
+  const handBackZiaTuck = () => {
+    try {
+      if (ziaTuckHeld === null) {
+        return;
+      }
+      const wanted = ziaTuckHeld;
+      ziaTuckHeld = null;
+      if (wanted) {
+        Services.prefs.setBoolPref(ZIA_TUCK_PREF, true);
+      }
+    } catch (err) {
+      // A window on its way out needs nothing.
+    }
+  };
+
   const stopPeek = () => {
     peeked = false;
+    handBackZiaTuck();
     revealing = false;
     clearLeave();
     stopPoll();
@@ -712,6 +756,7 @@
    * not, because a person asking for the player is not an accident of geometry.
    */
   const reveal = (forced = false) => {
+    holdZiaTuck();
     if (state !== "tucked" || peeked || document.fullscreenElement) {
       return;
     }
@@ -746,6 +791,7 @@
   };
 
   const retract = () => {
+    handBackZiaTuck();
     if (!peeked) {
       return;
     }
@@ -1874,25 +1920,22 @@
   Services.prefs.addObserver(PREF_DIRECTION, onOverlayPref);
   updateOverlay();
   /**
-   * Zen puts a minimize button in the player's corner, in the player document's
-   * own markup. A tucked strip is this mod's answer to putting the player aside,
-   * and offering both is worse than offering one, so the button goes.
+   * Zia draws a minimize button of its own into the player's corner
+   * (`.zia-pip-minimise`). A tucked strip is this mod's answer to putting the
+   * player aside, and offering both is worse than offering one, so that button
+   * goes.
    *
-   * Removed rather than hidden: a stylesheet rule can lose to a declaration that
-   * arrives later or with more weight, and a button that is merely invisible
-   * still takes a press where it sits. Nothing in the player's own code looks the
-   * element up, so taking it out costs nothing; if a document ever refuses the
-   * removal, hiding it is the fallback.
+   * Zia's own button, not the platform's `#minimize`, which is left alone: Zia
+   * clicks that one to close a player without pausing the video, and taking it
+   * out would quietly break a feature of another mod.
+   *
+   * What became of it is written down, because "it is still there" has more
+   * than one cause: this half may not have run, it may have run before Zia built
+   * its buttons, or the document may have refused the removal.
    */
-  const MINIMIZE_ID = "minimize";
+  const MINIMIZE_SELECTOR = ".zia-pip-minimise";
   const MINIMIZE_NOTE = "pip-tuck-away.minimize";
 
-  /**
-   * What became of the button is written down, because "it is still there" has
-   * more than one cause: the player half may not have run at all, it may have
-   * run before the button existed, or the document may have refused the removal.
-   * A pref says which, from the machine, without a console.
-   */
   const noteMinimize = (what) => {
     try {
       Services.prefs.setStringPref(MINIMIZE_NOTE, what);
@@ -1903,7 +1946,7 @@
 
   const removeMinimize = () => {
     try {
-      const button = document.getElementById(MINIMIZE_ID);
+      const button = document.querySelector?.(MINIMIZE_SELECTOR) ?? null;
       if (!button) {
         noteMinimize("absent");
         return true;
@@ -2131,6 +2174,7 @@
   }
 
   const destroy = () => {
+    handBackZiaTuck();
     stopPeek();
     glideId++;
     if (tuckedTimer) {
@@ -2200,6 +2244,7 @@
     isTucked: () => state === "tucked",
     size: () => ({ want: wantedSize(), at: [W(), H()] }),
     minimize: () => removeMinimize(),
+    ziaTuckHeld: () => ziaTuckHeld,
     place: () => ({ want: wantedPlace(), home, spot }),
     stats: () => ({ state, spot, home, tracking, sliver, peeked, modTarget, loadedAt: LOADED_AT }),
     why: () => ({

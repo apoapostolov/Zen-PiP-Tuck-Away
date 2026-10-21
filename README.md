@@ -22,7 +22,7 @@ Right-click the player and it slides into the nearest screen edge, leaving a thi
 
 Hovering the strip slides the whole player back into view when the peek setting is on. Pulling it into the screen by hand frees it; carrying it to another edge re-tucks it there.
 
-Zen adds a minimize button of its own to the player's corner, in the player document's own markup. A tucked strip is this mod's answer to putting the player aside, and offering both is worse than offering one, so the button is taken out of the document. Nothing in the player's own code looks it up, and a button that is merely invisible would still take a press where it sits.
+Zia draws a minimize button of its own into the player's corner. A tucked strip is this mod's answer to putting the player aside, and offering both is worse than offering one, so that button is taken out of the document. The platform's own `#minimize` is left alone: Zia clicks it to close a player without pausing the video, so removing it would quietly break a feature of another mod.
 
 ## Settings
 
@@ -141,7 +141,9 @@ Then restart Zen. Chrome scripts load at startup, so nothing appears before a re
 
 ## Using it with Zia
 
-This mod needs nothing else installed. If [Zia](https://github.com/z1n-k/zia) is present, its own tuck button gives way to the one here, since two buttons would move the same window, and its own tucking preference is switched off at startup for the same reason. Nothing is hidden when Zia is absent, and nothing here breaks.
+This mod needs nothing else installed. If [Zia](https://github.com/z1n-k/zia) is present, its own tuck button gives way to the one here, since two buttons would move the same window, and its own tucking preference is switched off at startup for the same reason. Zia's minimize button is taken out of the player, for the same reason a tuck makes it redundant. Nothing is hidden when Zia is absent, and nothing here breaks.
+
+Zia's tuck can be switched back on, and it is worth knowing what happens then: a peek slides the player out of its strip, which Zia reads as a drag towards an edge, so it tucks the player straight back and the reveal snaps shut. While a peek is open, this mod holds Zia's tucking preference off and hands it back the moment the peek ends. A player closed mid-peek hands it back too.
 
 ## How it is put together
 

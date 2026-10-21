@@ -249,6 +249,9 @@ function mk(prefsIn = {}, opts = {}) {
   const minimize = makeElement("div");
   minimize._id = "minimize";
   let lateMinimizeHere = !opts.lateMinimize;
+  // Zia's own minimize button, drawn into the player's corner.
+  const minimiseNode = makeElement("button");
+  minimiseNode._id = "zia-minimise";
   const layerButton = {
     style: {
       props: {},
@@ -283,7 +286,11 @@ function mk(prefsIn = {}, opts = {}) {
     createElement: (tag) => makeElement(tag),
     querySelector: (sel) => {
       if (sel === ".player-holder") return holder;
-      return opts.ziaButton && sel.includes("zia-pip-tuck-button") ? ziaButtonNode : null;
+      if (sel.includes("zia-pip-tuck-button")) return opts.ziaButton ? ziaButtonNode : null;
+      if (sel.includes("zia-pip-minimise")) {
+        return opts.ziaMinimise && !minimiseNode.removed ? minimiseNode : null;
+      }
+      return null;
     },
     getElementById: (id) =>
       id === "controls"
@@ -411,6 +418,7 @@ function mk(prefsIn = {}, opts = {}) {
       const queued = [...timers.entries()].sort((a, b) => a[1].ms - b[1].ms);
       timers.clear();
       lateMinimizeHere = true;
+      if (opts.lateZiaMinimise) opts.ziaMinimise = true;
       for (const [, t] of queued) t.fn();
       return queued.length;
     },
@@ -2024,27 +2032,65 @@ for (const r of results) {
 }
 
 
-// ---------- Zen's minimize button is gone
+// ---------- Zia's minimize button, and Zia's tuck against our peek
 
-// 109. the player takes Zen's minimize button out of the document
+// 109. with no Zia in the player there is nothing to take out
 {
   const t = mk({});
-  check("the button is gone", t.doc.getElementById("minimize"), null);
-  check("and nothing was left behind to press", t.minimizeRemoved(), true);
-  check("with what happened written down for a look from outside", t.getPref("pip-tuck-away.minimize"), "removed");
+  check("nothing was there to remove", t.getPref("pip-tuck-away.minimize"), "absent");
 }
 
-// 110. a button that arrives late goes too
+// 110. Zia's own minimize button is taken out of the document
 {
-  const t = mk({}, { lateMinimize: true });
-  check("nothing to remove yet", t.doc.getElementById("minimize"), null);
+  const t = mk({}, { ziaMinimise: true });
+  check("the button is gone", t.doc.querySelector(".zia-pip-minimise"), null);
+  check("and that is written down", t.getPref("pip-tuck-away.minimize"), "removed");
+  check("while Zia's tuck button is left alone", !!t.doc.querySelector(".zia-pip-tuck-button"), false);
+}
+
+// 111. a button Zia builds late goes too
+{
+  const t = mk({}, { lateZiaMinimise: true });
   t.runTimers();
-  check("and once it is there it is removed", t.minimizeRemoved(), true);
+  check("the late button is removed as well", t.getPref("pip-tuck-away.minimize"), "removed");
 }
 
-// 111. the sheet carries no rule for it, so no dead CSS is left behind
+// 112. the platform's own minimize is left alone: Zia clicks it
 {
-  check("no minimize rule in the player sheet", SHEET.includes("#minimize"), false);
+  const source = fs.readFileSync(process.argv[2], "utf8");
+  check("nothing removes the platform's #minimize", /getElementById\("minimize"\)[\s\S]{0,80}remove\(\)/.test(source), false);
+}
+
+// 113. Zia's tuck is held off while our peek is open, and handed back after
+{
+  const t = mk({ "pip-tuck-away.hover-peek": true, "zia.pip.tuck": true });
+  check("Zia's tuck is on to begin with", t.getPref("zia.pip.tuck"), true);
+  t.api.tuck("right");
+  t.flush();
+  t.mouseEnter();
+  t.flush();
+  check("the peek is open", t.attrs.has("pip-peeking"), true);
+  check("and Zia's tuck is held off so it cannot snap the reveal shut", t.getPref("zia.pip.tuck"), false);
+  check("with the user's own value remembered", t.api.ziaTuckHeld(), true);
+  t.mouseMove(200, 40);
+  t.mouseLeave();
+  t.advance(300);
+  t.runTimers();
+  t.flush();
+  check("the peek is closed", t.attrs.has("pip-peeking"), false);
+  check("and Zia's tuck is handed back as it was", t.getPref("zia.pip.tuck"), true);
+  check("with nothing left held", t.api.ziaTuckHeld(), null);
+}
+
+// 114. a player with Zia absent changes nothing about Zia
+{
+  const t = mk({ "pip-tuck-away.hover-peek": true });
+  t.api.tuck("right");
+  t.flush();
+  t.mouseEnter();
+  t.flush();
+  check("no Zia setting is invented", t.getPref("zia.pip.tuck"), undefined);
+  check("and none is held", t.api.ziaTuckHeld(), null);
 }
 
 

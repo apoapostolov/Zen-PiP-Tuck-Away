@@ -460,7 +460,13 @@ function mk(prefsIn = {}, opts = {}) {
       async stat(path) {
         return { size: (traces.get(path) ?? "").length };
       },
-      async writeUTF8(path, text) {
+      async writeUTF8(path, text, options = {}) {
+        // Gecko fails an append to a file that is not there, which is what made
+        // the trace silently never exist. The stub says so too, so the fix
+        // cannot be undone quietly.
+        if (options.mode === "append" && !traces.has(path)) {
+          throw new Error("NS_ERROR_FILE_NOT_FOUND");
+        }
         traces.set(path, (traces.get(path) ?? "") + text);
       },
       async remove(path) {
@@ -1190,6 +1196,14 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("with the corners and the two middles",
     place.options.map((o) => o.label).slice(1),
     ["Top Left", "Top Middle", "Top Right", "Bottom Left", "Bottom Middle", "Bottom Right"]);
+}
+
+// 30l. the trace exists on a profile that has never had one
+{
+  const t = mk({}, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  await t.tick();
+  check("a trace line was written to a file that did not exist", /widget:/.test(t.traces()), true);
+  check("with no write error recorded", t.prefs["pip-tuck-away.trace-error"], undefined);
 }
 
 // 30e2. a video that never produces a picture becomes a player window

@@ -92,11 +92,18 @@
       }
       IOUtils.exists(path)
         .then(async (there) => {
-          if (there) {
-            const info = await IOUtils.stat(path);
-            if (info.size > TRACE_MAX) {
-              await IOUtils.remove(path, { ignoreAbsent: true });
-            }
+          if (!there) {
+            // Appending needs a file to append to: writing one without a mode
+            // is what creates it. Without this the trace never existed at all,
+            // and every write failed with NS_ERROR_FILE_NOT_FOUND in silence.
+            await IOUtils.writeUTF8(path, line);
+            return;
+          }
+          const info = await IOUtils.stat(path);
+          if (info.size > TRACE_MAX) {
+            await IOUtils.remove(path, { ignoreAbsent: true });
+            await IOUtils.writeUTF8(path, line);
+            return;
           }
           await IOUtils.writeUTF8(path, line, { mode: "append" });
         })
