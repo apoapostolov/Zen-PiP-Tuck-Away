@@ -242,6 +242,14 @@
   transition: transform 200ms ease;
 }
 
+/* Zen adds a minimize button of its own to the player's corner. Tucking is what
+ * this mod offers instead, and two ways to put the player out of the way is one
+ * too many, so the button goes. Hidden rather than removed: Zen's own code may
+ * still look for the element. */
+#minimize {
+  display: none !important;
+}
+
 :root[pip-tucked] #pip-tuck-away-badge {
   display: flex;
 }

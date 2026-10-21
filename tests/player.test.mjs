@@ -103,6 +103,12 @@ function mk(prefsIn = {}, opts = {}) {
         removeProperty(k) {
           delete this.props[k];
         },
+        getPropertyValue(k) {
+          return this.props[k]?.value ?? "";
+        },
+        getPropertyPriority(k) {
+          return this.props[k]?.priority ?? "";
+        },
       },
       setAttribute(k, v) {
         if (k === "id") {
@@ -238,6 +244,10 @@ function mk(prefsIn = {}, opts = {}) {
   };
 
   const controls = makeElement("div");
+  // Zen's own minimize button, in the player's corner.
+  const minimize = makeElement("div");
+  minimize._id = "minimize";
+  let lateMinimizeHere = !opts.lateMinimize;
   const layerButton = {
     style: {
       props: {},
@@ -274,7 +284,12 @@ function mk(prefsIn = {}, opts = {}) {
       if (sel === ".player-holder") return holder;
       return opts.ziaButton && sel.includes("zia-pip-tuck-button") ? ziaButtonNode : null;
     },
-    getElementById: (id) => (id === "controls" ? controls : byId.get(id) ?? null),
+    getElementById: (id) =>
+      id === "controls"
+        ? controls
+        : id === "minimize"
+          ? (opts.lateMinimize && !lateMinimizeHere ? null : minimize)
+          : byId.get(id) ?? null,
   };
 
   const window = {
@@ -385,12 +400,15 @@ function mk(prefsIn = {}, opts = {}) {
     window,
     doc: document,
     api: window.__pipTuckAway,
+    minimizeStyle: () => minimize.style.getPropertyValue("display"),
+    minimizePriority: () => minimize.style.getPropertyPriority("display"),
     attrs,
     flush,
     prefs,
     runTimers() {
       const queued = [...timers.entries()].sort((a, b) => a[1].ms - b[1].ms);
       timers.clear();
+      lateMinimizeHere = true;
       for (const [, t] of queued) t.fn();
       return queued.length;
     },
@@ -2001,6 +2019,29 @@ for (const r of results) {
   t.setPref("pip-tuck-away.size", "small");
   check("the player takes the size", t.size(), [280, 158]);
   check("and stays where it was", t.pos(), [400, 300]);
+}
+
+
+// ---------- Zen's minimize button is not offered
+
+// 109. the sheet hides it, with the weight to beat Zen's own declaration
+{
+  check("the sheet hides Zen's minimize button", SHEET.includes("#minimize{display:none!important}"), true);
+}
+
+// 110. and the player hides it in the document as well
+{
+  const t = mk({});
+  check("the button is hidden outright", t.minimizeStyle(), "none");
+  check("with the weight of an important declaration", t.minimizePriority(), "important");
+}
+
+// 111. a button that arrives late is still hidden
+{
+  const t = mk({}, { lateMinimize: true });
+  check("nothing to hide yet", t.doc.getElementById("minimize"), null);
+  t.runTimers();
+  check("and once it is there", t.doc.getElementById("minimize")?.style.getPropertyValue("display"), "none");
 }
 
 

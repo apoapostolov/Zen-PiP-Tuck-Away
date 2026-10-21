@@ -22,6 +22,8 @@ Right-click the player and it slides into the nearest screen edge, leaving a thi
 
 Hovering the strip slides the whole player back into view when the peek setting is on. Pulling it into the screen by hand frees it; carrying it to another edge re-tucks it there.
 
+Zen puts a minimize button in the player's corner of its own. A tucked strip is this mod's answer to putting the player aside, and offering both is worse than offering one, so that button is hidden. It is hidden rather than removed, because Zen's own code may still look for the element.
+
 ## Settings
 
 Grouped the way the mod works: the strip first, then the player itself, then
@@ -147,7 +149,7 @@ This mod needs nothing else installed. If [Zia](https://github.com/z1n-k/zia) is
 | --- | --- | --- |
 | `scripts/pip-tuck-away.uc.js` | any browser window | Watches for player windows, loads the player half into each one, owns the chord on every window, and shows a video in the media widget |
 | `scripts/pip-player.uc.js` | the picture-in-picture player | The move maths, the tuck button, the direction map, the hover peek, the memory, and the toggle API |
-| `styles/player.css` | the picture-in-picture player | The strip, the picker, the button, the frosted tucked strip and the bare reveal |
+| `styles/player.css` | the picture-in-picture player | The strip, the picker, the button, the frosted tucked strip, the bare reveal, and the hiding of Zen's minimize button |
 | `chrome.css` | the browser window | The panel the widget shows a video in |
 
 The player page carries a Content-Security-Policy that blocks inline styles, so the sheet is loaded as a real file. State lives in attributes on the root element.

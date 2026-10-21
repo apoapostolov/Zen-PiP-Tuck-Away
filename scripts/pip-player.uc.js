@@ -1873,9 +1873,40 @@
   Services.prefs.addObserver(PREF_OVERLAY, onOverlayPref);
   Services.prefs.addObserver(PREF_DIRECTION, onOverlayPref);
   updateOverlay();
+  /**
+   * Zen puts a minimize button in the player's corner. A tucked strip is this
+   * mod's answer to putting the player aside, and offering both is worse than
+   * offering one, so the button is hidden. The stylesheet does it too; this
+   * covers the case of a declaration that arrives with more weight than a sheet
+   * can answer, and of the button being added after this script runs.
+   */
+  const MINIMIZE_ID = "minimize";
+
+  const hideMinimize = () => {
+    try {
+      const button = document.getElementById(MINIMIZE_ID);
+      if (!button?.style) {
+        return false;
+      }
+      if (button.style.getPropertyValue("display") === "none") {
+        return true;
+      }
+      button.style.setProperty("display", "none", "important");
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+
   // #controls can arrive after this script in a freshly opened player.
+  hideMinimize();
   for (const delay of [120, 400, 1000]) {
-    settleTimers.push(setTimeout(updateOverlay, delay));
+    settleTimers.push(
+      setTimeout(() => {
+        updateOverlay();
+        hideMinimize();
+      }, delay)
+    );
   }
 
   // ---------- the tucked look
@@ -2145,6 +2176,7 @@
     destroy,
     isTucked: () => state === "tucked",
     size: () => ({ want: wantedSize(), at: [W(), H()] }),
+    minimize: () => hideMinimize(),
     place: () => ({ want: wantedPlace(), home, spot }),
     stats: () => ({ state, spot, home, tracking, sliver, peeked, modTarget, loadedAt: LOADED_AT }),
     why: () => ({
