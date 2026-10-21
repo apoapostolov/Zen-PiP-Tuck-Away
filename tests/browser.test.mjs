@@ -145,7 +145,10 @@ function mk(prefsIn = {}, opts = {}) {
   };
   const dockCardEl = {
     hidden: false,
-    getBoundingClientRect: () => ({ left: 20, top: 400, width: 300, height: 200, right: 320, bottom: 600 }),
+    rect: { left: 20, top: 400, width: 300, height: 200, right: 320, bottom: 600 },
+    getBoundingClientRect() {
+      return this.rect;
+    },
     querySelector(sel) {
       if (sel === ".zen-media-main-vbox") return dockMain;
       if (sel === ".zen-media-title") return { textContent: "Video" };
@@ -385,6 +388,7 @@ function mk(prefsIn = {}, opts = {}) {
       });
     },
     barStyle: mediaBar.style,
+    dockCardEl,
     setFront(on) {
       opts.frontWithApp = on;
     },
@@ -777,9 +781,11 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("docked once", calls.length >= 1, true);
   // card at left 20, width 300 -> panel 288 wide and 162 tall at 16:9, sitting
   // inside the widget's own box, 6px in from its top edge (900).
-  check("inside the widget, at its width", calls[0], { x: 26, y: 906, width: 288, height: 162 });
+  check("inside the widget, at its width", calls[0], { x: 26, y: 232, width: 288, height: 162 });
   check("and nothing was added to the card", t.dockSpacers.length, 0);
-  check("room is made in the widget itself", t.barStyle.props["--zen-media-collapsed-height"], "calc(80px + 380px)");
+  // 162 for the panel, 6px above and below it, and the card's own hover growth
+  // (200 - the 80px it already had) capped at 96.
+  check("room is made in the widget itself", t.barStyle.props["--zen-media-collapsed-height"], "calc(80px + 270px)");
   check("nothing was undocked", undocks.length, 0);
 }
 
@@ -908,6 +914,26 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   await tick();
   await tick();
   check("the player that was there folds away", t.windows[0].closed, true);
+}
+
+// 23g. the gap between the panel and the card stays the same size
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const calls = [];
+  t.windows[0].__pipTuckAway = {
+    dock: (rect) => calls.push(rect),
+    undock: () => {},
+    isDocked: () => calls.length > 0,
+    aspect: () => 16 / 9,
+  };
+  await t.tick();
+  const collapsed = calls.at(-1);
+  t.dockCardEl.rect = { left: 20, top: 340, width: 300, height: 260 }; // hovered: the card grew
+  await t.tick();
+  const expanded = calls.at(-1);
+  check("the panel moved up with the card", expanded.y < collapsed.y, true);
+  check("six pixels above the card at rest", collapsed.y + collapsed.height + 6, 400);
+  check("and six pixels above it while hovered", expanded.y + expanded.height + 6, 340);
 }
 
 // 22. unload puts the original handler back

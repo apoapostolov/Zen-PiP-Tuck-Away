@@ -431,6 +431,7 @@
   const DOCK_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
   const DOCK_INSET = 6; // px between the panel and the edges of its slot
   const DOCK_HEIGHT_VAR = "--zen-media-collapsed-height";
+  const DOCK_GROWTH_MAX = 96; // the most the card's hover rows can add, as slack
 
   // The bar's own height, read once before any room has been made for the panel,
   // so the room is added to the real thing rather than to a guess.
@@ -488,7 +489,12 @@
       if (reserveBase === null) {
         reserveBase = Math.round(bar.getBoundingClientRect?.().height ?? 0) || 0;
       }
-      const room = Math.round(height + cardHeight + DOCK_INSET * 3);
+      // The base height already holds the card, so only what the card grows by
+      // when it is hovered has to be added, on top of the panel itself. Adding
+      // the card's whole height reserves its room twice and leaves a hole
+      // between the panel and the card that nobody asked for.
+      const grown = Math.max(0, Math.min(Math.round(cardHeight - reserveBase), DOCK_GROWTH_MAX));
+      const room = Math.round(height + DOCK_INSET * 2 + grown);
       style.setProperty(DOCK_HEIGHT_VAR, `calc(${reserveBase}px + ${room}px)`);
     } catch (err) {
       log("could not make room for the panel", err);
@@ -562,13 +568,13 @@
     const originX = Number.isFinite(window.mozInnerScreenX) ? window.mozInnerScreenX : window.screenX;
     const originY = Number.isFinite(window.mozInnerScreenY) ? window.mozInnerScreenY : window.screenY;
     reserveSlot(bar, height, cardRect.height);
-    // The slot is the top of the widget's own box, which is where the room was
-    // just made. As the card expands on hover the box grows taller, its top
-    // edge rises, and the panel rises with it, staying inside the widget.
-    const box = bar.getBoundingClientRect?.() ?? cardRect;
+    // The panel sits a hair above the card's own top edge, and the room reserved
+    // above it is what the card takes when it expands on hover. That keeps the
+    // gap between the two the same size in both states: the box grows, the card
+    // grows into it, and the panel rides up with the card's edge.
     return {
       x: originX + cardRect.left + DOCK_INSET,
-      y: originY + box.top + DOCK_INSET,
+      y: originY + cardRect.top - height - DOCK_INSET,
       width,
       height,
     };
