@@ -189,7 +189,11 @@ def main(argv: list[str]) -> int:
             pass
 
     if not register():
-        announce(False, f"RegisterHotKey failed with {ctypes.get_last_error()}")
+        error = ctypes.get_last_error()
+        if selftest and error == 1409:  # ERROR_HOTKEY_ALREADY_REGISTERED
+            print("another helper already owns Ctrl+Alt+T; nothing to do")
+            return 0
+        announce(False, f"RegisterHotKey failed with {error}")
         return 1
 
     seq = read_seq()
