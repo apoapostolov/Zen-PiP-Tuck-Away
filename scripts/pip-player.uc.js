@@ -107,21 +107,44 @@
   /**
    * The edge a tuck should use.
    *
-   * Measured as the gap between the window's own edge and each screen edge,
-   * with the window pulled inside the screen box first so a position restored
-   * from a different display or scaling cannot decide it. A sideways tuck
-   * leaves the video as a tall strip, which is what a player wants, so a
-   * vertical edge has to be clearly closer to win. Centre distance was the old
-   * measure and it parked wide, short windows on the top or bottom edge even
-   * when they sat in a corner.
+   * Sides first: a sideways tuck leaves the video as a tall strip, which is
+   * what a playing video wants. A vertical tuck is only worth having when the
+   * window is well clear of both side edges and near one of the horizontal
+   * ones, and then the top is the default, so the bottom has to be clearly
+   * nearer to take it.
+   *
+   * A window that already hangs over an edge, however slightly, belongs to that
+   * edge: that is where the user last put it, and dragging it back toward the
+   * middle is not what a tuck is for. Distances are measured from the window's
+   * own edges rather than its centre, which is what makes a wide, short window
+   * in a corner read as a corner instead of as a top or bottom.
    */
-  const EDGE_BIAS = 1.25;
+  const OVERHANG = 2; // px past a screen edge that claims the tuck
+  const SIDE_CLEAR = 160; // px from both side edges before a vertical tuck
+  const FLAT_NEAR = 96; // px from a horizontal edge that calls it close
+  const TOP_BIAS = 64; // px the bottom edge has to beat the top by
+
   const nearestSide = () => {
     const b = screenBox();
     const w = W();
     const h = H();
-    const x = clamp(window.screenX, b.left, b.right - w);
-    const y = clamp(window.screenY, b.top, b.bottom - h);
+    if (!w || !h) {
+      return "right";
+    }
+    const x = window.screenX;
+    const y = window.screenY;
+    if (x <= b.left - OVERHANG) {
+      return "left";
+    }
+    if (x + w >= b.right + OVERHANG) {
+      return "right";
+    }
+    if (y <= b.top - OVERHANG) {
+      return "top";
+    }
+    if (y + h >= b.bottom + OVERHANG) {
+      return "bottom";
+    }
     const gap = {
       left: x - b.left,
       right: b.right - (x + w),
@@ -129,9 +152,9 @@
       bottom: b.bottom - (y + h),
     };
     const sideways = Math.min(gap.left, gap.right);
-    const standing = Math.min(gap.top, gap.bottom) * EDGE_BIAS;
-    if (standing < sideways) {
-      return gap.top <= gap.bottom ? "top" : "bottom";
+    const flat = Math.min(gap.top, gap.bottom);
+    if (flat <= FLAT_NEAR && sideways >= SIDE_CLEAR) {
+      return gap.bottom + TOP_BIAS < gap.top ? "bottom" : "top";
     }
     return gap.left <= gap.right ? "left" : "right";
   };
@@ -325,9 +348,14 @@
       return false;
     }
     stopPeek();
-    spot = side || nearestSide();
+    // A side is not knowable while the window still reports no size, which is
+    // exactly how early an auto tuck runs, so it is settled on the first pass
+    // that can see one.
+    spot = side || null;
     state = "tucked";
-    root.setAttribute("pip-tucked", spot);
+    if (spot) {
+      root.setAttribute("pip-tucked", spot);
+    }
     glideId++; // cancel anything already in flight
     const settle = () => {
       if (state !== "tucked" || peeked) {
@@ -336,6 +364,11 @@
       // The window has no real size yet while the document is still parsing.
       if (!W() || W() < 50) {
         return;
+      }
+      if (!spot) {
+        spot = nearestSide();
+        root.setAttribute("pip-tucked", spot);
+        reflectZiaButton();
       }
       window.moveTo(...tuckedPos(spot));
     };
@@ -1262,7 +1295,7 @@
 
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
-    instantTuck(nearestSide());
+    instantTuck();
   } else {
     // Firefox restores the last position just after the window opens, so check
     // more than once: first for a place this mod remembers, then that whatever
