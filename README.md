@@ -54,11 +54,14 @@ One requirement applies to every Sine mod installed from a repository rather tha
 
 ## Using it with Zia
 
-Zia tucks picture-in-picture as well, and two mods moving the same window turn every tuck into a tug of war. This mod is meant to replace that part of Zia, so make Zia hand the job over:
+Zia tucks picture-in-picture too, and two mods moving the same window turn every tuck into a tug of war. Set `zia.pip.tuck` to `false` in `about:config` and Zia's edge code goes dormant, which is what the install writes into `user.js` for you.
 
-- Set `zia.pip.tuck` to `false` in `about:config`. Zia's edge code goes dormant, and this mod hides Zia's tuck button for you, because Zia's CSS keeps that button visible even with its own switch off. Zia's right-click edge picker and the rest of its player styling keep working.
-- The mod warns once in the Browser Console if it finds Zia's tuck button in a player while `zia.pip.tuck` is on, or unset, which means Zia's default of on applies.
-- Right-clicks inside Zia's own player controls are passed straight to Zia, so turning Zia's tuck back on does not break its picker.
+The button stays. Zia hides its tuck button once its own switch is off, and a player missing a control it used to have looks broken, so this mod shows the button again and puts its own tuck behind it. The click is taken in the capture phase, before Zia's handler runs, so exactly one thing moves the window:
+
+- Clicking the button tucks, and clicking it again brings the player back. Zia's own button only ever tucked.
+- Right-clicking it still opens Zia's spot picker. A spot you pick there is honoured through this mod, folded onto the nearest side it parks against, which is left, right or bottom.
+- The button reports its state through `aria-pressed`, so it is not a toggle that looks the same both ways.
+- Right-clicks anywhere else inside Zia's controls are passed straight to Zia, so its picker and the rest of its player styling are untouched.
 - The two mods share no state: this one marks the window with `pip-tucked` and `pip-peeking`, never writes Zia's preferences, and Zia keeps its own `zia-*` attributes.
 
 ## The keyboard chord

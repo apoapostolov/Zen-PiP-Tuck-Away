@@ -19,8 +19,6 @@
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
   const PREF_HOVER_PEEK = "pip-tuck-away.hover-peek";
   const PREF_AUTO_TUCK = "pip-tuck-away.auto-tuck";
-  /** Zia's own tuck switch. This mod replaces that feature, so it must be off. */
-  const ZIA_TUCK_PREF = "zia.pip.tuck";
 
   const SLIVER = 24; // px of window left on screen while tucked
   const MARGIN = 16; // px kept from the screen edge when the window is out
@@ -51,7 +49,6 @@
   let settleUntil = 0;
   let revealing = false;
   let settleTimers = [];
-  let ziaWarned = false;
   let leaveTimer = null;
   let pollTimer = null;
   let driftTimer = null;
@@ -66,18 +63,6 @@
       return Services.prefs.getBoolPref(name);
     } catch (err) {
       return fallback;
-    }
-  };
-
-  /** true, false, or undefined when the preference has never been set. */
-  const prefState = (name) => {
-    try {
-      if (Services.prefs.getPrefType(name) === 0) {
-        return undefined;
-      }
-      return Services.prefs.getBoolPref(name);
-    } catch (err) {
-      return undefined;
     }
   };
 
@@ -239,6 +224,7 @@
     state = "tucked";
     root.setAttribute("pip-tucked", spot);
     glide(...tuckedPos(spot));
+    reflectZiaButton();
     return true;
   };
 
@@ -251,6 +237,7 @@
     spot = null;
     root.removeAttribute("pip-tucked");
     glide(...homePos());
+    reflectZiaButton();
     return true;
   };
 
@@ -289,6 +276,7 @@
     for (const delay of [60, 150, 320]) {
       settleTimers.push(setTimeout(settle, delay));
     }
+    reflectZiaButton();
     return true;
   };
 
@@ -523,58 +511,123 @@
   watchDrift();
 
   /**
-   * Zia's tuck button is styled by `.zia-pip-pill`, which is `display:
-   * inline-flex` on every pill, so switching Zia's tuck off does not remove
-   * the button. Hide it while this mod owns tucking, otherwise the player
-   * carries a second control that moves the window behind our back.
+   * Zia's tuck button stays where it is and drives this mod.
+   *
+   * Zia hides that button when `zia.pip.tuck` is false, and this mod keeps the
+   * preference off so only one thing moves the window. A missing control reads
+   * as a broken player, so the button is shown again and the clicks are taken
+   * in the capture phase, before Zia's handlers run: the same button, with this
+   * mod's geometry behind it. Zia's own picker still opens on right-click, and
+   * a spot picked there is honoured through the same path, folded onto the
+   * nearest side this mod supports.
    */
-  const hideZiaTuckButton = () => {
-    if (document.getElementById("pip-tuck-away-zia")) {
+  const ZIA_STYLE_ID = "pip-tuck-away-zia";
+
+  const showZiaButton = () => {
+    if (document.getElementById(ZIA_STYLE_ID)) {
       return;
     }
     try {
       const style = document.createElementNS("http://www.w3.org/1999/xhtml", "style");
-      style.id = "pip-tuck-away-zia";
-      style.textContent = "#controls .zia-pip-tuck-button{display:none !important;}";
+      style.id = ZIA_STYLE_ID;
+      // Zia hides the button with display:none and only shows it while its own
+      // tuck is on. Both of its rules are matched here, because a bare
+      // !important would lose to the :root[zia-no-tuck] one.
+      style.textContent =
+        "#controls .zia-pip-tuck-button,:root[zia-no-tuck] #controls .zia-pip-tuck-button{display:inline-flex !important;}";
       document.documentElement.appendChild(style);
     } catch (err) {
-      log("could not hide Zia's tuck button", err);
+      log("could not show Zia's tuck button", err);
     }
   };
 
-  /**
-   * Decide who owns tucking for this window. A missing preference means Zia
-   * has never been configured, and Zia's own default is on, so the presence
-   * of its button is the signal worth trusting.
-   */
-  const reconcileZia = () => {
-    const zia = prefState(ZIA_TUCK_PREF);
-    if (zia === false) {
-      hideZiaTuckButton();
+  const ziaButton = () => {
+    try {
+      return document.querySelector("#controls .zia-pip-tuck-button");
+    } catch (err) {
+      return null;
+    }
+  };
+
+  /** Keep the button's pressed state honest, since it now drives this mod. */
+  const reflectZiaButton = () => {
+    const button = ziaButton();
+    if (!button?.setAttribute) {
       return;
     }
-    let button = null;
+    button.setAttribute("aria-pressed", state === "tucked" ? "true" : "false");
+  };
+
+  /** Zia's picker closes on Escape, which is the only handle it offers. */
+  const closeZiaPicker = () => {
     try {
-      button = document.querySelector("#controls .zia-pip-tuck-button");
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     } catch (err) {
-      button = null;
+      // No picker open, or a window that refuses synthetic events.
     }
-    if (button && !ziaWarned) {
-      ziaWarned = true;
-      const state =
-        zia === undefined
-          ? "is unset, so Zia's default of true applies"
-          : "is true";
-      console.warn(
-        `[PiP Tuck Away] Zia's tuck button is in this player (zia.pip.tuck ${state}). ` +
-          "Two mods are moving the window. Set zia.pip.tuck to false so this mod owns tucking."
-      );
+  };
+
+  /** Zia names eight spots; this mod parks against three sides. */
+  const sideFromSpot = (name) => {
+    if (!name) {
+      return nearestSide();
     }
+    if (name.includes("left")) {
+      return "left";
+    }
+    if (name.includes("right")) {
+      return "right";
+    }
+    if (name.includes("bottom")) {
+      return "bottom";
+    }
+    return nearestSide();
+  };
+
+  const ziaTarget = (node, selector) => {
+    try {
+      return node?.closest?.(selector) ?? null;
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const onZiaClick = (event) => {
+    const spot = ziaTarget(event.target, "#controls .zia-pip-spot");
+    const button = ziaTarget(event.target, "#controls .zia-pip-tuck-button");
+    if (!spot && !button) {
+      return;
+    }
+    // Claim the press before Zia's own listener sees it, or two things move
+    // the window and the second one wins.
+    event.preventDefault();
+    event.stopImmediatePropagation?.();
+    event.stopPropagation();
+    if (spot) {
+      tuck(sideFromSpot(spot.dataset?.spot));
+      closeZiaPicker();
+      reflectZiaButton();
+      return;
+    }
+    toggle();
+    reflectZiaButton();
+  };
+
+  document.addEventListener("click", onZiaClick, true);
+
+  const reconcileZia = () => {
+    if (!ziaButton()) {
+      return;
+    }
+    showZiaButton();
+    reflectZiaButton();
   };
 
   reconcileZia();
-  // Zia may attach its controls after us, so look again once they exist.
-  settleTimers.push(setTimeout(reconcileZia, 600));
+  // Zia builds its controls after this script in some players, so look again.
+  for (const delay of [300, 900]) {
+    settleTimers.push(setTimeout(reconcileZia, delay));
+  }
 
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
@@ -609,7 +662,8 @@
     root.removeAttribute("pip-tucked");
     root.removeAttribute("pip-peeking");
     try {
-      document.getElementById("pip-tuck-away-zia")?.remove();
+      document.removeEventListener("click", onZiaClick, true);
+      document.getElementById(ZIA_STYLE_ID)?.remove();
     } catch (err) {
       log("could not remove the Zia button style", err);
     }
