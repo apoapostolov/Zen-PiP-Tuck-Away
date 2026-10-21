@@ -47,6 +47,10 @@ That is also why the panel is a window and not a picture in the page. The playin
 
 The panel comes out when the card goes away, when the setting is off, and when you tuck it. With more than one playing tab the mod looks for the card whose title matches the video's tab, and otherwise uses the first card on screen.
 
+## Going back to the tab
+
+Selecting the tab a player came from puts the video back in the page and takes the player away. Firefox does that itself, but only for the players it registered as caught by a tab switch, and that registration depends on the tab's docshell still being asleep when the player opened. Anything that wakes it first loses the behaviour silently, and the player simply stays where it is. So the mod keeps its own note of which tabs it saw a player taken from, and closes that player when the tab comes forward, either in the tab strip or by returning to Zen with that tab in front. A player you asked for by hand is left alone, since it was not the tab walking away that opened it.
+
 ## Leaving Zen
 
 Zen's own auto-toggle only fires for a tab that became hidden, so leaving Zen with the video's own tab in front sends no request at all. With **Pop the player out when leaving Zen** on, the mod asks that tab for a player itself and remembers the window it opened. Coming back to the video's own tab folds it away again; a player you asked for yourself is never touched.

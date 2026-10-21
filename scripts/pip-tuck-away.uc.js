@@ -164,6 +164,25 @@
     }
   };
 
+  const onTabSelect = () => {
+    // The platform's own handler runs on the same event; letting it go first
+    // means this is only needed when its registration is missing.
+    setTimeout(closeForForegroundTab, 0);
+  };
+
+  const watchTabs = (win) => {
+    try {
+      const strip = win.gBrowser?.tabContainer;
+      if (!strip || strip[KEYS_FLAG]) {
+        return;
+      }
+      strip.addEventListener("TabSelect", onTabSelect);
+      strip[KEYS_FLAG] = true;
+    } catch (err) {
+      log("could not watch the tab strip", err);
+    }
+  };
+
   const attachKeys = (win) => {
     try {
       if (!win || win.closed || win[KEYS_FLAG]) {
@@ -174,6 +193,7 @@
       }
       win.addEventListener("keydown", onKeyDown, true);
       win[KEYS_FLAG] = true;
+      watchTabs(win);
       win.addEventListener("unload", () => detachKeys(win), { once: true });
     } catch (err) {
       log("could not add the keyboard listener to a window", err);
@@ -547,8 +567,13 @@
     }
     trueOriginal = api.handlePictureInPictureRequest.bind(api);
     const wrapped = async (wgp, videoData) => {
+      const fromTabSwitch = requestedByTabSwitch(wgp);
+      const browser = browserOf(wgp);
+      if (fromTabSwitch && browser) {
+        autoPipped.add(browser);
+      }
       trace(
-        `request: tabSwitch=${requestedByTabSwitch(wgp)} focus=${requestingWindowFocused(wgp)} ` +
+        `request: tabSwitch=${fromTabSwitch} focus=${requestingWindowFocused(wgp)} ` +
           `inline=${pref(INLINE_PREF, false)} card=${mediaCardState()} => passed to the platform`
       );
       return trueOriginal(wgp, videoData);
@@ -707,6 +732,69 @@
   const FOLD_DELAY = 80;
 
   /** Is the tab that owns this player the one the window is showing? */
+  // The tabs whose player the platform opened because the tab was hidden. Those
+  // are the ones that go away again when the tab comes back.
+  const autoPipped = new WeakSet();
+
+  const browserOf = (wgp) => {
+    try {
+      return wgp?.browsingContext?.top?.embedderElement ?? null;
+    } catch (err) {
+      return null;
+    }
+  };
+
+  /** The player window the platform opened for this tab, if any. */
+  const playerFor = (browser) => {
+    const api = pipApi();
+    if (!api?.weakWinToBrowser?.get) {
+      return null;
+    }
+    try {
+      for (const win of Services.wm.getEnumerator("Toolkit:PictureInPicture")) {
+        if (api.weakWinToBrowser.get(win) === browser && !win.closed) {
+          return win;
+        }
+      }
+    } catch (err) {
+      // No player windows to look at.
+    }
+    return null;
+  };
+
+  /**
+   * Going back to the tab a hidden tab's player came from puts the video back in
+   * the page. Firefox does this itself, but only for the windows it registered
+   * as caught by a tab switch, and that registration depends on the tab's
+   * docshell being inactive at the moment the player opened. Anything that wakes
+   * the docshell first silently loses the behaviour: the player simply stays
+   * where it is and the video never returns. So the mod keeps its own note of
+   * which tabs it saw a player taken from, and closes that player when the tab
+   * is selected again. A player asked for by hand is left alone, because it was
+   * not the tab walking away that opened it.
+   */
+  const closeForForegroundTab = () => {
+    try {
+      for (const win of Services.wm.getEnumerator("Toolkit:PictureInPicture")) {
+        const api = pipApi();
+        const browser = api?.weakWinToBrowser?.get?.(win);
+        if (!browser || !autoPipped.has(browser)) {
+          continue;
+        }
+        if (!isForegroundTab(browser)) {
+          continue;
+        }
+        autoPipped.delete(browser);
+        if (browser.docShellIsActive) {
+          releaseDocShell(api, browser);
+        }
+        win.close();
+      }
+    } catch (err) {
+      log("could not fold the player for the foregrounded tab", err);
+    }
+  };
+
   const isForegroundTab = (browser) => {
     try {
       const tabbrowser = browser?.getTabBrowser?.();
@@ -729,6 +817,9 @@
    * the video's own tab still folds it away.
    */
   const foldBack = () => {
+    // Coming back to Zen with the player's own tab in front folds that player too,
+    // which is the same rule the tab strip applies.
+    closeForForegroundTab();
     const win = floatedWindow;
     if (!win || win.closed) {
       floatedWindow = null;

@@ -27,6 +27,9 @@ function mk(prefsIn = {}, opts = {}) {
     const w = {
       location: { href },
       closed: false,
+      close() {
+        w.closed = true;
+      },
       document: documentReady ? { documentElement: {} } : undefined,
       // A freshly opened chrome window fires load on its own; the script waits
       // for it, so deliver it as soon as the listener is attached.
@@ -72,6 +75,15 @@ function mk(prefsIn = {}, opts = {}) {
   const closedWindows = [];
   const closedSingle = [];
   const pipWindows = [];
+  const tabStrip = {
+    _events: {},
+    addEventListener(type, fn) {
+      (this._events[type] ||= []).push(fn);
+    },
+    fire(type) {
+      for (const fn of [...(this._events[type] || [])]) fn({ type, target: {} });
+    },
+  };
   const deferred = [];
   // The platform's own maps: which window belongs to which browser, and which
   // browser was auto-pipped and through which actor.
@@ -181,7 +193,7 @@ function mk(prefsIn = {}, opts = {}) {
     innerWidth: 1920,
     innerHeight: 1080,
     location: { href: "chrome://browser/content/browser.xhtml" },
-    gBrowser: { selectedBrowser: selected },
+    gBrowser: { selectedBrowser: selected, tabContainer: tabStrip },
     document: {
       hasFocus: () => focused,
       querySelector: (sel) => (sel === "#zen-media-controls-toolbar" ? mediaBar : null),
@@ -347,6 +359,14 @@ function mk(prefsIn = {}, opts = {}) {
     closedSingle,
     launcherMessages,
     selected,
+    tabStrip,
+    select(browser) {
+      window.gBrowser.selectedBrowser = browser;
+      browser.getTabBrowser = () => ({
+        selectedBrowser: browser,
+        shouldActivateDocShell: () => false,
+      });
+    },
     weakWinToBrowser,
     weakAutoPipBrowserToParent,
     pipWindows,
@@ -786,6 +806,45 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   };
   await t.tick();
   check("the player comes out", undocked >= 1, true);
+}
+
+// 26. coming back to the tab the player came from puts the video back
+{
+  const t = mk({});
+  t.pipWindows.push(t.windows[0]); // the platform's registry of player windows
+  const wgp = wgpFor(false); // the docshell is inactive: the automatic path
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  check("a player was opened", t.windows[0].closed, false);
+  t.select(wgp.browser);
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  await tick();
+  check("selecting that tab closes it", t.windows[0].closed, true);
+}
+
+// 26b. any other tab leaves the player alone
+{
+  const t = mk({});
+  t.pipWindows.push(t.windows[0]);
+  const wgp = wgpFor(false, { selected: false }); // the player's tab is in the background
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.tabStrip.fire("TabSelect"); // another tab came forward
+  await tick();
+  await tick();
+  check("still open", t.windows[0].closed, false);
+}
+
+// 26c. a player asked for by hand is not the tab walking away
+{
+  const t = mk({});
+  t.pipWindows.push(t.windows[0]);
+  const wgp = wgpFor(true); // docshell active and selected: a real PiP press
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.select(wgp.browser);
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  await tick();
+  check("left alone", t.windows[0].closed, false);
 }
 
 // 22. unload puts the original handler back
