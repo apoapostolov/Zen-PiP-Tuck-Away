@@ -40,6 +40,7 @@
   let lastPointerAt = 0;
   let watchdog = null;
   let settleTimers = [];
+  let ziaWarned = false;
 
   const pref = (name, fallback) => {
     try {
@@ -357,15 +358,59 @@
   window.addEventListener("resize", onResize);
   Services.prefs.addObserver(PREF_HOVER_PEEK, onPrefChange);
 
-  // Zia can tuck picture-in-picture as well. Two mods moving the same window
-  // turn every tuck into a tug of war, so say it once rather than failing
-  // quietly. Zia's own controls keep their right-click picker either way.
-  if (prefState(ZIA_TUCK_PREF) === true) {
-    console.warn(
-      "[PiP Tuck Away] Zia's own tuck is still on (zia.pip.tuck = true). " +
-        "Two mods are moving the player window. Set zia.pip.tuck to false so this mod owns it."
-    );
-  }
+  /**
+   * Zia's tuck button is styled by `.zia-pip-pill`, which is `display:
+   * inline-flex` on every pill, so switching Zia's tuck off does not remove
+   * the button. Hide it while this mod owns tucking, otherwise the player
+   * carries a second control that moves the window behind our back.
+   */
+  const hideZiaTuckButton = () => {
+    if (document.getElementById("pip-tuck-away-zia")) {
+      return;
+    }
+    try {
+      const style = document.createElementNS("http://www.w3.org/1999/xhtml", "style");
+      style.id = "pip-tuck-away-zia";
+      style.textContent = "#controls .zia-pip-tuck-button{display:none !important;}";
+      document.documentElement.appendChild(style);
+    } catch (err) {
+      log("could not hide Zia's tuck button", err);
+    }
+  };
+
+  /**
+   * Decide who owns tucking for this window. A missing preference means Zia
+   * has never been configured, and Zia's own default is on, so the presence
+   * of its button is the signal worth trusting.
+   */
+  const reconcileZia = () => {
+    const zia = prefState(ZIA_TUCK_PREF);
+    if (zia === false) {
+      hideZiaTuckButton();
+      return;
+    }
+    let button = null;
+    try {
+      button = document.querySelector("#controls .zia-pip-tuck-button");
+    } catch (err) {
+      button = null;
+    }
+    if (button && !ziaWarned) {
+      ziaWarned = true;
+      const state =
+        zia === undefined
+          ? "is unset, so Zia's default of true applies"
+          : "is true";
+      console.warn(
+        `[PiP Tuck Away] Zia's tuck button is in this player (zia.pip.tuck ${state}). ` +
+          "Two mods are moving the window. Set zia.pip.tuck to false so this mod owns tucking."
+      );
+    }
+  };
+
+  reconcileZia();
+  // Zia may attach its controls after us, so look again once they exist.
+  settleTimers.push(setTimeout(reconcileZia, 600));
 
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
@@ -395,6 +440,11 @@
     }
     root.removeAttribute("pip-tucked");
     root.removeAttribute("pip-peeking");
+    try {
+      document.getElementById("pip-tuck-away-zia")?.remove();
+    } catch (err) {
+      log("could not remove the Zia button style", err);
+    }
     delete window.__pipTuckAway;
   };
 

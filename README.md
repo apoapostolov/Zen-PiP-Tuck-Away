@@ -43,8 +43,8 @@ One requirement applies to every Sine mod installed from a repository rather tha
 
 Zia tucks picture-in-picture as well, and two mods moving the same window turn every tuck into a tug of war. This mod is meant to replace that part of Zia, so make Zia hand the job over:
 
-- Set `zia.pip.tuck` to `false` in `about:config`. Zia's tuck button, its right-click picker and its edge code go dormant, while the rest of Zia's player styling keeps working exactly as before.
-- The mod warns once in the Browser Console if it finds Zia's tuck still enabled, naming the preference to change.
+- Set `zia.pip.tuck` to `false` in `about:config`. Zia's edge code goes dormant, and this mod hides Zia's tuck button for you, because Zia's CSS keeps that button visible even with its own switch off. Zia's right-click edge picker and the rest of its player styling keep working.
+- The mod warns once in the Browser Console if it finds Zia's tuck button in a player while `zia.pip.tuck` is on, or unset, which means Zia's default of on applies.
 - Right-clicks inside Zia's own player controls are passed straight to Zia, so turning Zia's tuck back on does not break its picker.
 - The two mods share no state: this one marks the window with `pip-tucked` and `pip-peeking`, never writes Zia's preferences, and Zia keeps its own `zia-*` attributes.
 

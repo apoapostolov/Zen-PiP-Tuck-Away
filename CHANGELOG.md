@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+- Hides Zia's tuck button while `zia.pip.tuck` is false. Zia styles every pill with `display: inline-flex`, so switching its own switch off left the button in the player as a second, competing control.
+- The takeover warning is now one-shot and triggers on evidence: it fires only when Zia's button is actually present in the player and Zia's tuck is on or unset.
+- The injected hide rule is removed again when the mod unloads.
+
 ## 0.2.1
 
 - Coexistence with Zia, which tucks picture-in-picture too. The mod now warns once in the Browser Console when `zia.pip.tuck` is still enabled, naming the preference that hands the feature over.
