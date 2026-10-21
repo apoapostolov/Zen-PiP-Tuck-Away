@@ -20,6 +20,7 @@
   const SHORTCUT_PREF = "pip-tuck-away.shortcut";
   const AUTO_TUCK_PREF = "pip-tuck-away.auto-tuck";
   const INLINE_PREF = "pip-tuck-away.inline-in-zen";
+  const WIDGET_PREF = "pip-tuck-away.in-widget";
   const PIP_MODULE = "moz-src:///toolkit/components/pictureinpicture/PictureInPicture.sys.mjs";
 
   const pref = (name, fallback) => {
@@ -254,7 +255,12 @@
         "load",
         () => {
           attachKeys(subject);
-          setTimeout(() => decorate(subject), 0);
+          setTimeout(() => {
+            decorate(subject);
+            // A player window is the only window worth docking, and by now the
+            // dock machinery exists.
+            startDockLoop();
+          }, 0);
         },
         { once: true }
       );
@@ -387,6 +393,173 @@
     } catch (err) {
       return `error ${err?.message ?? err}`;
     }
+  };
+
+  // ---------- the video in Zen's media card
+  //
+  // The card is a row in the sidebar: a thumbnail, the name, the playtime, and
+  // the buttons. The picture itself cannot be moved into the page: the player's
+  // video lives in a separate window with its own browsing context, and the only
+  // way to render a video's pixels inside the document is a canvas mirror, which
+  // loses audio and fails on anything protected.
+  //
+  // So what is docked is the window, not the pixels. A gap is reserved inside
+  // the card, under the name and the playtime, and the player window is sized
+  // and moved into it. The video is the real video, with its real sound, and
+  // nothing is reloaded, so playback never restarts.
+
+  const DOCK_CLASS = "pip-tuck-away-dock";
+  const DOCK_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
+  const DOCK_SYNC_MS = 120;
+
+  const mediaCards = () => {
+    try {
+      const bar = window.document?.querySelector?.(MEDIA_BAR);
+      if (!bar || bar.hidden || bar.hasAttribute?.("hidden")) {
+        return [];
+      }
+      return Array.from(bar.querySelectorAll?.(".zen-media-card:not([hidden])") ?? []);
+    } catch (err) {
+      return [];
+    }
+  };
+
+  /** The card under the video's own tab, or the only card there is. */
+  const cardForPlayer = (win) => {
+    const cards = mediaCards();
+    if (!cards.length) {
+      return null;
+    }
+    if (cards.length === 1) {
+      return cards[0];
+    }
+    try {
+      const api = pipApi();
+      const browser = api?.weakWinToBrowser?.get?.(win);
+      const label = browser ? window.gBrowser?.getTabForBrowser?.(browser)?.label : null;
+      if (label) {
+        const match = cards.find((card) =>
+          card.querySelector?.(".zen-media-title")?.textContent?.trim() === label.trim()
+        );
+        if (match) {
+          return match;
+        }
+      }
+    } catch (err) {
+      // fall through to the first card
+    }
+    return cards[0];
+  };
+
+  const dockSpacer = (card) => {
+    const main = card?.querySelector?.(".zen-media-main-vbox");
+    if (!main) {
+      return null;
+    }
+    let spacer = main.querySelector?.(`.${DOCK_CLASS}`);
+    if (!spacer) {
+      spacer = window.document.createElementNS("http://www.w3.org/1999/xhtml", "div");
+      spacer.className = DOCK_CLASS;
+      spacer.setAttribute("aria-hidden", "true");
+      const controls = main.querySelector?.(".zen-media-controls-hbox") ?? null;
+      main.insertBefore(spacer, controls);
+    }
+    return spacer;
+  };
+
+  const clearSpacers = () => {
+    for (const spacer of window.document.querySelectorAll?.(`.${DOCK_CLASS}`) ?? []) {
+      spacer.style.height = "0px";
+    }
+  };
+
+  const dockAspect = (win) => {
+    const aspect = win?.__pipTuckAway?.aspect?.();
+    return Number.isFinite(aspect) && aspect > 0.3 && aspect < 4 ? aspect : 16 / 9;
+  };
+
+  /** Where the picture should sit, in screen pixels. */
+  const dockGeometry = (card, win) => {
+    const spacer = dockSpacer(card);
+    if (!spacer) {
+      return null;
+    }
+    const cardWidth = card.getBoundingClientRect?.().width ?? 0;
+    const width = Math.max(80, Math.round(cardWidth - 12));
+    const limit = Math.round((window.innerHeight || 800) * DOCK_MAX_SHARE);
+    const height = Math.max(45, Math.min(Math.round(width / dockAspect(win)), limit));
+    if (Math.abs((parseFloat(spacer.style.height) || 0) - height) > 1) {
+      spacer.style.height = `${height}px`;
+    }
+    const rect = spacer.getBoundingClientRect?.();
+    if (!rect || rect.width < 40 || rect.height < 20) {
+      return null;
+    }
+    const originX = Number.isFinite(window.mozInnerScreenX) ? window.mozInnerScreenX : window.screenX;
+    const originY = Number.isFinite(window.mozInnerScreenY) ? window.mozInnerScreenY : window.screenY;
+    return {
+      x: originX + rect.left,
+      y: originY + rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+  };
+
+  let dockTimer = null;
+  let dockedWindow = null;
+
+  const stopDockLoop = () => {
+    if (dockTimer) {
+      clearInterval(dockTimer);
+      dockTimer = null;
+    }
+  };
+
+  const dockTick = () => {
+    const win = Services.wm.getMostRecentWindow("Toolkit:PictureInPicture");
+    if (!win) {
+      if (dockedWindow?.__pipTuckAway) {
+        dockedWindow.__pipTuckAway.undock?.();
+      }
+      dockedWindow = null;
+      clearSpacers();
+      stopDockLoop();
+      return;
+    }
+    const api = win.__pipTuckAway;
+    if (!api?.dock) {
+      // The player document is still loading. The next tick finds it.
+      return;
+    }
+    if (!pref(WIDGET_PREF, true)) {
+      if (api.isDocked?.()) {
+        api.undock?.();
+      }
+      dockedWindow = null;
+      clearSpacers();
+      return;
+    }
+    const card = cardForPlayer(win);
+    const rect = card ? dockGeometry(card, win) : null;
+    if (!rect) {
+      // The card is not on screen: the player is a player again.
+      if (api.isDocked?.()) {
+        api.undock?.();
+      }
+      dockedWindow = null;
+      clearSpacers();
+      return;
+    }
+    dockedWindow = win;
+    api.dock?.(rect);
+  };
+
+  const startDockLoop = () => {
+    if (dockTimer) {
+      return;
+    }
+    dockTimer = setInterval(dockTick, DOCK_SYNC_MS);
+    dockTick();
   };
 
   const installPipHook = () => {
@@ -603,6 +776,9 @@
   };
 
   installPipHook();
+  if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
+    startDockLoop();
+  }
 
   trace(
     `browser half loaded; inline=${pref(INLINE_PREF, false)} ` +
@@ -621,6 +797,8 @@
   // ---------- teardown (Sine calls this when the mod is disabled or updated)
 
   const unload = () => {
+    stopDockLoop();
+    clearSpacers();
     try {
       Services.ww.unregisterNotification(observer);
     } catch (err) {

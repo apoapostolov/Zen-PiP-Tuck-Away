@@ -95,6 +95,12 @@
     "defaultValue": false
   },
   {
+    "property": "pip-tuck-away.in-widget",
+    "label": "Play the video in the media widget",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "pip-tuck-away.auto-tuck",
     "label": "Auto tuck on PiP switch",
     "type": "checkbox",

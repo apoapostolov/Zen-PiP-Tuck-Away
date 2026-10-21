@@ -385,3 +385,15 @@
 :root[zia-no-tuck] #controls .zia-pip-tuck-button {
   display: inline-flex !important;
 }
+
+/* Docked in Zen's media card the player is a panel, not a window: the picture
+ * is the whole of it, so none of the player's own furniture is drawn. */
+:root[pip-docked] #pip-tuck-away-overlay,
+:root[pip-docked] #pip-tuck-away-badge,
+:root[pip-docked] #pip-tuck-away-arm,
+:root[pip-docked] #pip-tuck-away-picker {
+  display: none !important;
+}
+:root[pip-docked] .player-holder {
+  filter: none !important;
+}

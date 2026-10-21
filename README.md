@@ -118,6 +118,16 @@ Restart Zen afterwards, because script mods load at startup.
 
 One requirement applies to every Sine mod installed from a repository rather than the store: JavaScript must be allowed. Check that `sine.allow-unsafe-js` is `true` in `about:config`, otherwise the mod installs, appears enabled, and does nothing at all. Mods that ship scripts run with full browser privileges, so read the two files in `scripts/` before you trust them. They are short and they only move a window.
 
+## The video in the media widget
+
+Zen's media card is a row in the sidebar: a thumbnail, the name, the playtime and the buttons. **Play the video in the media widget** (on by default) puts the picture in the card, in a gap reserved under the name and the playtime and above the buttons.
+
+What is docked is the window, not the pixels, and that is a deliberate choice. The playing video lives in the player's own window with its own browsing context; there is no way to move that into a page. The one way to render a video's pixels inside the document is to mirror frames into a canvas, which is what Mediaflow does, and a mirror has no sound of its own, cannot be clicked like a player, and goes black on anything protected. A docked window is the real video with the real audio, and nothing is reloaded, so playback never restarts.
+
+The gap is the card's own width and the video's own shape, so the picture is never stretched, and it follows the card: hovering the card expands the name and the playtime, and the picture moves down with them. Take the card away, by selecting the video's tab or closing it, and the player is a player again, at its remembered place. Tucking a docked player takes it out of the widget first, because a strip has no business being drawn inside a card. With more than one playing tab the mod looks for the card whose title matches the video's tab, and otherwise uses the first card on screen.
+
+One honest limit: a docked player is still a window sitting on top of the sidebar, so it is above other applications while Zen is in the background, and it appears in the taskbar the way any player window does.
+
 ## Pop the player out when leaving Zen
 
 Zen has a media card in the sidebar for whatever is playing in a background tab, and it appears on its own. It needs no help, and an earlier version of this mod held the player back on the theory that the card would drive the video instead. That was wrong twice over: the card shows up regardless, so the only effect of holding the request back was a player that arrived late or not at all, and a video with no card anywhere both opened a player and made the first tab switch behave differently from the second.
