@@ -1,0 +1,41 @@
+[
+  {
+    "type": "text",
+    "label": "**Tuck away**",
+    "size": "15px",
+    "margin": "0 0 8px 0"
+  },
+  {
+    "type": "text",
+    "label": "The player slides into the nearest screen edge and leaves a 24px strip. These settings decide how it comes back out.",
+    "margin": "0 0 12px 0"
+  },
+  {
+    "type": "separator",
+    "label": "Controls"
+  },
+  {
+    "property": "pip-tuck-away.right-click",
+    "label": "Tuck away on right click",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "pip-tuck-away.shortcut",
+    "label": "Toggle with **Ctrl+Shift+T**",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "pip-tuck-away.hover-peek",
+    "label": "Peek while hovering the tucked strip",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "type": "text",
+    "label": "While a player window is open, Ctrl+Shift+T belongs to this mod, so it no longer reopens a closed tab. Turn the shortcut off to give it back.",
+    "size": "11px",
+    "margin": "10px 0 0 0"
+  }
+]
