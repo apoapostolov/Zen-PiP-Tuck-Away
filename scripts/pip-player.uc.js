@@ -63,6 +63,7 @@
   let pollTimer = null;
   let tuckedTimer = null;
   let reopenAfter = 0;
+  let controlsTimer = null;
   let bare = false;
   /** Screen coordinates of the pointer at its last event, so window moves cannot invalidate them. */
   let pointer = { x: 0, y: 0, at: 0 };
@@ -271,7 +272,9 @@
     clearLeave();
     stopPoll();
     root.removeAttribute("pip-peeking");
+    root.removeAttribute(CONTROLS_ATTR);
     setBare(false);
+    clearFrost();
   };
 
   const tuck = (side = null) => {
@@ -481,6 +484,7 @@
     clearLeave();
     root.setAttribute("pip-peeking", "");
     setBare(true);
+    frostNothing();
     glide(...flushPos(spot), GLIDE_MS, () => {
       revealing = false;
     });
@@ -579,10 +583,19 @@
    * why the bare look is only given up on a press.
    */
   const onBarePress = (event) => {
-    if (!bare || event.button !== 0) {
+    if (event.button !== 0) {
       return;
     }
-    setBare(false);
+    if (event.target === badge()) {
+      return;
+    }
+    if (bare) {
+      setBare(false);
+    }
+    // Only a peek needs the hand-over: elsewhere Firefox is already in charge.
+    if (peeked) {
+      offerControls();
+    }
   };
 
   const onResize = () => {
@@ -976,6 +989,53 @@
     return overlay;
   };
 
+  const badge = () => document.getElementById(BADGE_ID);
+
+  const playerHolder = () => {
+    try {
+      return document.querySelector(".player-holder");
+    } catch (err) {
+      return null;
+    }
+  };
+
+  /**
+   * The frost belongs to the tucked state only. While the window is out for a
+   * peek it has to read as plain video, so the filter is cleared on the element
+   * itself rather than trusted to an attribute selector alone.
+   */
+  const clearFrost = () => {
+    try {
+      playerHolder()?.style?.removeProperty("filter");
+    } catch (err) {
+      // A player without a holder needs nothing.
+    }
+  };
+
+  const frostNothing = () => {
+    try {
+      const holder = playerHolder();
+      if (holder?.style) {
+        holder.style.filter = "none";
+      }
+    } catch (err) {
+      // A player without a holder needs nothing.
+    }
+  };
+
+  /** Firefox shows the controls on enter and hides them on its own timer, so a
+   * press that un-bares them has to hand them over with a visible window. */
+  const offerControls = () => {
+    root.setAttribute(CONTROLS_ATTR, "");
+    if (controlsTimer) {
+      clearTimeout(controlsTimer);
+    }
+    controlsTimer = setTimeout(() => {
+      controlsTimer = null;
+      root.removeAttribute(CONTROLS_ATTR);
+    }, CONTROLS_HOLD);
+  };
+
   /** Keep the arrow honest when the window is moved without a state change. */
   const refreshSide = () => {
     const overlay = document.getElementById(OVERLAY_ID);
@@ -1040,6 +1100,8 @@
   // handle rather than a chopped-up sliver. Taken from Zia, which did this
   // with a sliver overlay and a filter on the video.
 
+  const CONTROLS_ATTR = "pip-controls";
+  const CONTROLS_HOLD = 2600; // ms the controls stay after a press asks for them
   const BADGE_ID = "pip-tuck-away-badge";
   const TUCK_STYLE_ID = "pip-tuck-away-tuck-style";
   const TUCK_CSS = [
@@ -1064,6 +1126,10 @@
     // cannot see it, and it clears as the window slides back out.
     ":root[pip-tucked] .player-holder{transition:filter 280ms ease}",
     ":root[pip-tucked]:not([pip-peeking]) .player-holder{filter:blur(16px) brightness(.85)}",
+    // A peek is a look at the video, so nothing may tint it, whatever state the
+    // attributes happen to be in.
+    ":root[pip-peeking] .player-holder{filter:none !important}",
+    ":root[pip-controls] .control-item{opacity:1 !important}",
   ].join("");
 
   const ensureTuckLook = () => {
@@ -1158,6 +1224,10 @@
     try {
       document.removeEventListener("click", onZiaClick, true);
       document.getElementById(ZIA_STYLE_ID)?.remove();
+      if (controlsTimer) {
+        clearTimeout(controlsTimer);
+        controlsTimer = null;
+      }
       document.getElementById(BADGE_ID)?.remove();
       document.getElementById(TUCK_STYLE_ID)?.remove();
       document.getElementById(BARE_STYLE_ID)?.remove();
