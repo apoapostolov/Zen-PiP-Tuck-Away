@@ -33,19 +33,19 @@ Hovering the strip slides the whole player back into view when the peek setting 
 | Tuck width | Normal | How much of the player stays on screen: Normal (24px), Wide (48px) or Very wide (72px) |
 | Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player out until the pointer leaves the video |
-| Play the video in the media widget | on | The player is docked against Zen's media card, at its width and the video's shape |
+| Play the video in the media widget | on | The player is embedded in Zen's media card, in room made inside the widget |
 | Pop the player out when leaving Zen | off | Leaving Zen asks the tab in front for a player, which the platform does not do on its own |
 | Auto tuck on PiP switch | off | A new player opens already tucked instead of appearing in its normal place first |
 
 ## The video in the media widget
 
-Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With the setting on, the player is docked against that card: the widget's own width, the video's own shape, hanging just above it and moving with it.
+Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **Play the video in the media widget** on, the player is embedded in the widget: the toolbar is made taller to hold it, and the panel sits in that room, above the card's rows, at the widget's width and the video's own shape.
 
-The card itself is left alone. Zen's media toolbar keeps its collapsed height on purpose and lets the expanded cards float above it, so anything added inside a card is measured against a box that was never built to grow, and the card the video is supposed to join is what ends up wrong. The panel therefore sits beside the widget as a window, and Zen's markup is exactly as Zen drew it.
+The room is real. Zen's media toolbar takes its height from `--zen-media-collapsed-height`, so growing that variable is how the panel gets a laid-out slot: the toolbar becomes taller, the tab list above gives the space up, and the card keeps its place at the bottom of the box. Nothing is added to the card's markup, and nothing floats over the sidebar. As the card expands on hover the box grows, its top edge rises, and the panel rises with it.
 
-That is also why the panel is a window and not a picture in the page. The playing video lives in the player's own browsing context and cannot be moved into a document; the only way to paint video inside the page is a frame mirror, which has no sound of its own and goes black on protected content. A docked window is the real video with the real audio, and nothing is reloaded, so playback never restarts.
+The panel is a window, and that is the one honest limit: the playing video lives in the player's own browsing context and cannot be moved into a document. The only way to paint video inside the page is a frame mirror, which has no sound of its own and goes black on protected content. A docked window is the real video with the real audio, and nothing is reloaded, so playback never restarts. What the panel does not have is the player's own furniture: its control bar is built for a window and reads as a wall of buttons at panel size, so it is switched off while docked and the picture is the whole of it. A click still pauses and plays.
 
-The panel comes out when the card goes away, when the setting is off, and when you tuck it. With more than one playing tab the mod looks for the card whose title matches the video's tab, and otherwise uses the first card on screen.
+The panel comes out when the card goes away, when the setting is off, and when you tuck it, and the toolbar's room is given back with it. With more than one playing tab the mod looks for the card whose title matches the video's tab, and otherwise uses the first card on screen.
 
 ## Going back to the tab
 

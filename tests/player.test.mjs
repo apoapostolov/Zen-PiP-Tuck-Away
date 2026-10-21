@@ -1561,6 +1561,19 @@ const check = (name, actual, expected) => {
   check("the memory is untouched", t.getPref("pip-tuck-away.home"), "700,300");
 }
 
+// 24g. a docked panel never hands its own controls back
+{
+  const t = mk({});
+  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
+  check("docked means bare", t.attrs.has("pip-tuck-away-bare"), true);
+  t.clickPlayer();
+  check("a press does not bring them back", t.attrs.has("pip-tuck-away-bare"), true);
+  t.api.dock({ x: 100, y: 200, width: 320, height: 180 }); // an unchanged rectangle
+  check("and the next tick keeps it bare", t.attrs.has("pip-tuck-away-bare"), true);
+  const css = t.overlayStyle()?.textContent ?? "";
+  check("the bar is switched off in the sheet too", css.includes(":root[pip-docked] #controls"), true);
+}
+
 // 24f. a platform resize cannot tear the panel out of the gap
 {
   const t = mk({});

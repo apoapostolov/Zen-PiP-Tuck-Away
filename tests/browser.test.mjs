@@ -162,6 +162,18 @@ function mk(prefsIn = {}, opts = {}) {
   }[cardMode] ?? { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
   const mediaBar = {
     hidden: cardMode === "absent",
+    style: {
+      props: {},
+      setProperty(k, v) {
+        this.props[k] = v;
+      },
+      removeProperty(k) {
+        delete this.props[k];
+      },
+      getPropertyValue(k) {
+        return this.props[k] ?? "";
+      },
+    },
     offsetParent: cardMode === "absent" || cardMode === "tiny" ? null : {},
     getBoundingClientRect: () => opts.barRect ?? cardRect,
     hasAttribute(name) {
@@ -367,6 +379,7 @@ function mk(prefsIn = {}, opts = {}) {
         shouldActivateDocShell: () => false,
       });
     },
+    barStyle: mediaBar.style,
     weakWinToBrowser,
     weakAutoPipBrowserToParent,
     pipWindows,
@@ -754,10 +767,11 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   };
   await t.tick();
   check("docked once", calls.length >= 1, true);
-  // card at left 20, width 300 -> panel 288 wide and 162 tall at 16:9,
-  // hanging above the bar's top edge (900) with a 6px inset.
-  check("above the widget, at its width", calls[0], { x: 26, y: 732, width: 288, height: 162 });
+  // card at left 20, width 300 -> panel 288 wide and 162 tall at 16:9, sitting
+  // inside the widget's own box, 6px in from its top edge (900).
+  check("inside the widget, at its width", calls[0], { x: 26, y: 906, width: 288, height: 162 });
   check("and nothing was added to the card", t.dockSpacers.length, 0);
+  check("room is made in the widget itself", t.barStyle.props["--zen-media-collapsed-height"], "calc(80px + 380px)");
   check("nothing was undocked", undocks.length, 0);
 }
 
@@ -791,6 +805,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   await t.tick();
   check("never docked", calls.length, 0);
   check("and taken out of the widget", undocked >= 1, true);
+  check("the room is given back", t.barStyle.props["--zen-media-collapsed-height"], undefined);
 }
 
 // 23d. no card on screen means no dock
@@ -806,6 +821,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   };
   await t.tick();
   check("the player comes out", undocked >= 1, true);
+  check("the room is given back", t.barStyle.props["--zen-media-collapsed-height"], undefined);
 }
 
 // 26. coming back to the tab the player came from puts the video back

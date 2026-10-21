@@ -429,8 +429,49 @@
   // nothing is reloaded, so playback never restarts.
 
   const DOCK_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
-  const DOCK_INSET = 6; // px between the panel and the widget it hangs from
-  const DOCK_SYNC_MS = 120;
+  const DOCK_INSET = 6; // px between the panel and the edges of its slot
+  const DOCK_HEIGHT_VAR = "--zen-media-collapsed-height";
+
+  // The bar's own height, read once before any room has been made for the panel,
+  // so the room is added to the real thing rather than to a guess.
+  let reserveBase = null;
+
+  const releaseReserve = () => {
+    reserveBase = null;
+    try {
+      window.document?.querySelector?.(MEDIA_BAR)?.style?.removeProperty?.(DOCK_HEIGHT_VAR);
+    } catch (err) {
+      // No bar to put back.
+    }
+  };
+
+  /**
+   * Make room for the panel inside the widget.
+   *
+   * Zen's media toolbar sets its own height from `--zen-media-collapsed-height`,
+   * and it keeps that height while the cards overflow above it. Growing the
+   * variable is therefore the supported way to give the panel a real slot: the
+   * toolbar becomes taller, the tab list above gives the space up, and the card
+   * sits at the bottom of the box with the panel's slot above it. The panel is
+   * then inside the widget rather than floating over the sidebar, and it travels
+   * with the box as the card expands on hover.
+   */
+  const reserveSlot = (bar, height, cardHeight) => {
+    try {
+      const style = bar?.style;
+      if (!style?.setProperty) {
+        return;
+      }
+      if (reserveBase === null) {
+        reserveBase = Math.round(bar.getBoundingClientRect?.().height ?? 0) || 0;
+      }
+      const room = Math.round(height + cardHeight + DOCK_INSET * 3);
+      style.setProperty(DOCK_HEIGHT_VAR, `calc(${reserveBase}px + ${room}px)`);
+    } catch (err) {
+      log("could not make room for the panel", err);
+    }
+  };
+  const DOCK_SYNC_MS = 60;
 
   const mediaCards = () => {
     try {
@@ -489,8 +530,7 @@
   const dockGeometry = (card, win) => {
     const bar = window.document?.querySelector?.(MEDIA_BAR);
     const cardRect = card?.getBoundingClientRect?.();
-    const barRect = bar?.getBoundingClientRect?.();
-    if (!cardRect || !barRect || cardRect.width < 60) {
+    if (!bar || !cardRect || cardRect.width < 60) {
       return null;
     }
     const width = Math.max(80, Math.round(cardRect.width - DOCK_INSET * 2));
@@ -498,9 +538,14 @@
     const height = Math.max(45, Math.min(Math.round(width / dockAspect(win)), limit));
     const originX = Number.isFinite(window.mozInnerScreenX) ? window.mozInnerScreenX : window.screenX;
     const originY = Number.isFinite(window.mozInnerScreenY) ? window.mozInnerScreenY : window.screenY;
+    reserveSlot(bar, height, cardRect.height);
+    // The slot is the top of the widget's own box, which is where the room was
+    // just made. As the card expands on hover the box grows taller, its top
+    // edge rises, and the panel rises with it, staying inside the widget.
+    const box = bar.getBoundingClientRect?.() ?? cardRect;
     return {
       x: originX + cardRect.left + DOCK_INSET,
-      y: originY + barRect.top - height - DOCK_INSET,
+      y: originY + box.top + DOCK_INSET,
       width,
       height,
     };
@@ -508,6 +553,7 @@
 
   let dockTimer = null;
   let dockedWindow = null;
+  let lastDockNote = "";
 
   const stopDockLoop = () => {
     if (dockTimer) {
@@ -523,6 +569,7 @@
         dockedWindow.__pipTuckAway.undock?.();
       }
       dockedWindow = null;
+      releaseReserve();
       stopDockLoop();
       return;
     }
@@ -536,16 +583,25 @@
         api.undock?.();
       }
       dockedWindow = null;
+      releaseReserve();
       return;
     }
     const card = cardForPlayer(win);
     const rect = card ? dockGeometry(card, win) : null;
+    const seen = rect
+      ? `${rect.x},${rect.y} ${rect.width}x${rect.height}`
+      : `no card (${mediaCardState()})`;
+    if (seen !== lastDockNote) {
+      lastDockNote = seen;
+      trace(`dock: ${seen}`);
+    }
     if (!rect) {
       // The card is not on screen: the player is a player again.
       if (api.isDocked?.()) {
         api.undock?.();
       }
       dockedWindow = null;
+      releaseReserve();
       return;
     }
     dockedWindow = win;
@@ -558,6 +614,33 @@
     }
     dockTimer = setInterval(dockTick, DOCK_SYNC_MS);
     dockTick();
+  };
+
+  /**
+   * The media card's own visibility, written down whenever it changes.
+   *
+   * A card that never appears is a question about Zen, not about this mod, and
+   * it cannot be answered from the source: the answer is what the card does on
+   * one real launch. This watch runs only while tracing is on, and it is cheap
+   * enough to leave running: one read of two elements a quarter of a second.
+   */
+  let lastCardNote = "";
+  let cardWatchTimer = null;
+
+  const cardWatchTick = () => {
+    const note = mediaCardState();
+    if (note !== lastCardNote) {
+      lastCardNote = note;
+      trace(`widget: ${note}`);
+    }
+  };
+
+  const startCardWatch = () => {
+    if (cardWatchTimer || !pref(TRACE_PREF, true)) {
+      return;
+    }
+    cardWatchTimer = setInterval(cardWatchTick, 250);
+    cardWatchTick();
   };
 
   const installPipHook = () => {
@@ -845,6 +928,7 @@
   };
 
   installPipHook();
+  startCardWatch();
   if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
     startDockLoop();
   }
@@ -867,6 +951,11 @@
 
   const unload = () => {
     stopDockLoop();
+    releaseReserve();
+    if (cardWatchTimer) {
+      clearInterval(cardWatchTimer);
+      cardWatchTimer = null;
+    }
     try {
       Services.ww.unregisterNotification(observer);
     } catch (err) {

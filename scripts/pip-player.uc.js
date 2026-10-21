@@ -663,7 +663,10 @@
    * until the user reaches for them with a left press.
    */
   const setBare = (on) => {
-    bare = !!on;
+    // A docked panel is a picture in a widget. Its own control bar is built for
+    // a window and does not fit a panel that size, so it never comes back while
+    // the player is docked, whatever asks for it.
+    bare = docked ? true : !!on;
     hideControlLayer(bare);
     if (!bare) {
       if (root.hasAttribute(BARE_ATTR)) {
@@ -1160,6 +1163,9 @@
       Math.abs(docked.height - next.height) < 1;
     docked = next;
     if (same) {
+      // Still ask for the bare state: something else may have handed the
+      // controls back since the last tick, and a panel is never a window.
+      setBare(true);
       return true;
     }
     try {
