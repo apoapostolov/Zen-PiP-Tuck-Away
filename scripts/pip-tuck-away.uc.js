@@ -42,6 +42,7 @@
   // them, and the player is found through the window mediator rather than
   // through the window that saw the key, so one code path covers every case.
 
+  const REQUEST_COOLDOWN = 1500; // ms between asking the same tab for a player
   const CHORD_CODE = "KeyT";
   const CHORD_KEY = "t";
   const KEYS_FLAG = "__pipTuckAwayKeys";
@@ -221,6 +222,7 @@
 
   let suppressed = null; // the request kept in the page
   let lastRequest = null; // the request we floated last, to float it again
+  let requestCooldownUntil = 0; // two focus blurs in a row must not ask twice
   let floatedWindow = null; // the player opened because Zen lost focus
   let trueOriginal = null; // the unwrapped request handler
 
@@ -313,7 +315,13 @@
           { once: true }
         );
       })
-      .catch((err) => log("could not float the player after leaving Zen", err));
+      .catch((err) => {
+        log("could not float the player after leaving Zen", err);
+        lastRequest = null;
+        suppressed = null;
+        requestCooldownUntil = 0;
+        requestFromSelectedTab();
+      });
   };
 
   /**
@@ -342,6 +350,46 @@
     }
   };
 
+  /**
+   * Leaving Zen while the video's own tab is selected produces no automatic
+   * request at all: the platform only pips a tab that got hidden, and its
+   * handler skips the selected tab on purpose. Ask the browser's own launcher
+   * for that tab, which is the same toggle the platform uses.
+   */
+  const requestFromSelectedTab = () => {
+    if (!pref(INLINE_PREF, false) || suppressed) {
+      return;
+    }
+    if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
+      return;
+    }
+    if (Date.now() < requestCooldownUntil) {
+      return;
+    }
+    requestCooldownUntil = Date.now() + REQUEST_COOLDOWN;
+    try {
+      const browser = window.gBrowser?.selectedBrowser;
+      if (!browser || browser.audioMuted) {
+        return;
+      }
+      const actor = browser.browsingContext?.currentWindowGlobal?.getActor(
+        "PictureInPictureLauncher"
+      );
+      actor?.sendAsyncMessage?.("PictureInPicture:AutoToggle");
+    } catch (err) {
+      log("could not ask for a player on leaving Zen", err);
+    }
+  };
+
+  /** The window lost focus: float what we kept, or ask for what is playing. */
+  const onLeftZen = () => {
+    if (suppressed) {
+      floatSuppressed();
+      return;
+    }
+    requestFromSelectedTab();
+  };
+
   /** Zen has focus again: close the player we opened, leaving the card in charge. */
   const foldBack = () => {
     if (!floatedWindow || floatedWindow.closed) {
@@ -363,7 +411,20 @@
       } else {
         Promise.resolve(api?.closePipWindow?.(win))
           .catch((err) => log("could not close the floated player", err))
-          .finally(() => releaseDocShell(api, browser));
+          .finally(() => {
+            // The plain close leaves the browser counted as pip'd, which would
+            // keep its docshell active for good. Do what the platform's own
+            // close does with that count.
+            try {
+              if (browser && api?.browserWeakMap?.has?.(browser)) {
+                api.removePiPBrowserFromWeakMap?.(browser);
+              }
+              api?.weakAutoPipBrowserToParent?.delete?.(browser);
+            } catch (err) {
+              // A closed tab needs no bookkeeping.
+            }
+            releaseDocShell(api, browser);
+          });
       }
     } catch (err) {
       log("could not close the floated player", err);
@@ -383,7 +444,7 @@
   // only give "focus"/"blur", so both pairs are wired and each handler is
   // idempotent.
   for (const type of ["deactivate", "blur"]) {
-    window.addEventListener(type, floatSuppressed);
+    window.addEventListener(type, onLeftZen);
   }
   for (const type of ["activate", "focus"]) {
     window.addEventListener(type, foldBack);
@@ -402,7 +463,7 @@
       detachKeys(win);
     }
     for (const type of ["deactivate", "blur"]) {
-      window.removeEventListener(type, floatSuppressed);
+      window.removeEventListener(type, onLeftZen);
     }
     for (const type of ["activate", "focus"]) {
       window.removeEventListener(type, foldBack);
