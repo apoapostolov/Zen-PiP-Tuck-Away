@@ -32,6 +32,12 @@ The reveal is sticky by design. It stays up while the pointer is anywhere in a b
 
 Auto tuck is off by default because it changes where the player starts life. Turn it on and the very first thing you see when a video goes picture-in-picture is the strip at the edge, chosen as the edge nearest where the player would normally have appeared. Firefox restores a player window's last position and size just after it opens, so the mod re-applies the tucked position a few times across the first third of a second to win that race. A single frame at the old spot can still slip through on a slow start, which is the price of doing this from a script rather than inside the browser's own window code.
 
+## What is left on screen
+
+A tucked player is mostly off screen, so what remains is a 24px strip of video. It is frosted: the video is blurred and dimmed while tucked, with the same trick Firefox uses for its see-through mode, and the blur clears as the player slides back out. Firefox's own controls hide themselves while the player is tucked, because they belong to the part nobody can see.
+
+Across that strip sits a small badge with a chevron pointing back out, on a faint dark wash that darkens under the pointer. A press on it brings the player back, and a right press still rolls it to another edge. The strip keeps dragging as a window handle, so pulling it out by hand releases the tuck the way it always did.
+
 ## The tuck strip
 
 The player carries a strip that tucks it. It is not a small pill beside the controls: it is a band of the video itself, 20% of the width and 90% of the height along the side it will tuck into, and 90% by 20% across the top or the bottom. Inside it are an arrow pointing at that edge and the words Tuck Away, at 45% opacity until you hover, then solid, on a faint dark wash.

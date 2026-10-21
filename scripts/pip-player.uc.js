@@ -1033,6 +1033,89 @@
     settleTimers.push(setTimeout(updateOverlay, delay));
   }
 
+  // ---------- the tucked look
+  //
+  // What is left on screen while tucked is a strip of the video, so it is
+  // frosted and carries a chevron pointing back out: the strip reads as a
+  // handle rather than a chopped-up sliver. Taken from Zia, which did this
+  // with a sliver overlay and a filter on the video.
+
+  const BADGE_ID = "pip-tuck-away-badge";
+  const TUCK_STYLE_ID = "pip-tuck-away-tuck-style";
+  const TUCK_CSS = [
+    "#pip-tuck-away-badge{position:fixed;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(24,24,27,.32);cursor:pointer;-moz-window-dragging:drag;transition:background-color 160ms linear}",
+    "#pip-tuck-away-badge:hover{background:rgba(24,24,27,.55)}",
+    "#pip-tuck-away-badge::after{content:'';width:7px;height:7px;border-right:2px solid rgba(255,255,255,.92);border-bottom:2px solid rgba(255,255,255,.92);transition:transform 200ms ease}",
+    ":root[pip-tucked] #pip-tuck-away-badge{display:flex}",
+    // The peek owns the window while it is out, and the badge has nothing to
+    // point at then.
+    ":root[pip-peeking] #pip-tuck-away-badge{display:none}",
+    ":root[pip-tucked=left] #pip-tuck-away-badge{right:0;top:0;bottom:0;width:24px}",
+    ":root[pip-tucked=left] #pip-tuck-away-badge::after{transform:rotate(135deg)}",
+    ":root[pip-tucked=right] #pip-tuck-away-badge{left:0;top:0;bottom:0;width:24px}",
+    ":root[pip-tucked=right] #pip-tuck-away-badge::after{transform:rotate(-45deg)}",
+    ":root[pip-tucked=top] #pip-tuck-away-badge{left:0;right:0;bottom:0;height:24px}",
+    ":root[pip-tucked=top] #pip-tuck-away-badge::after{transform:rotate(-135deg)}",
+    ":root[pip-tucked=bottom] #pip-tuck-away-badge{left:0;right:0;top:0;height:24px}",
+    ":root[pip-tucked=bottom] #pip-tuck-away-badge::after{transform:rotate(45deg)}",
+    // Firefox's controls belong to the part of the player nobody can see.
+    ":root[pip-tucked]:not([pip-peeking]) #controls{visibility:hidden}",
+    // A filter on the holder works on the video itself, where a backdrop blur
+    // cannot see it, and it clears as the window slides back out.
+    ":root[pip-tucked] .player-holder{transition:filter 280ms ease}",
+    ":root[pip-tucked]:not([pip-peeking]) .player-holder{filter:blur(16px) brightness(.85)}",
+  ].join("");
+
+  const ensureTuckLook = () => {
+    if (document.getElementById(TUCK_STYLE_ID)) {
+      return;
+    }
+    try {
+      const style = document.createElementNS(XHTML_NS, "style");
+      style.id = TUCK_STYLE_ID;
+      style.textContent = TUCK_CSS;
+      document.documentElement.appendChild(style);
+    } catch (err) {
+      log("could not style the tucked strip", err);
+    }
+  };
+
+  const buildBadge = () => {
+    const badge = document.createElementNS(XHTML_NS, "div");
+    badge.id = BADGE_ID;
+    badge.setAttribute("role", "button");
+    badge.setAttribute("tabindex", "0");
+    badge.setAttribute("tooltip", "Bring the player back");
+    badge.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state === "tucked") {
+        untuck();
+      }
+    });
+    badge.addEventListener("contextmenu", (event) => {
+      // Right-click belongs to the mod's own tuck toggle, not to a menu.
+      event.preventDefault();
+      event.stopPropagation();
+      toggle();
+    });
+    return badge;
+  };
+
+  const ensureBadge = () => {
+    ensureTuckLook();
+    if (document.getElementById(BADGE_ID)) {
+      return;
+    }
+    try {
+      (document.body ?? document.documentElement).appendChild(buildBadge());
+    } catch (err) {
+      log("could not build the tucked strip badge", err);
+    }
+  };
+
+  ensureBadge();
+
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
     instantTuck(nearestSide());
@@ -1075,6 +1158,8 @@
     try {
       document.removeEventListener("click", onZiaClick, true);
       document.getElementById(ZIA_STYLE_ID)?.remove();
+      document.getElementById(BADGE_ID)?.remove();
+      document.getElementById(TUCK_STYLE_ID)?.remove();
       document.getElementById(BARE_STYLE_ID)?.remove();
       root.removeAttribute(BARE_ATTR);
       document.getElementById(OVERLAY_ID)?.remove();
