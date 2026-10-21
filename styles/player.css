@@ -256,7 +256,7 @@
   right: 0;
   top: 0;
   bottom: 0;
-  width: 24px;
+  width: var(--pip-sliver, 24px);
 }
 
 :root[pip-tucked="left"] #pip-tuck-away-badge::after {
@@ -267,7 +267,7 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 24px;
+  width: var(--pip-sliver, 24px);
 }
 
 :root[pip-tucked="right"] #pip-tuck-away-badge::after {
@@ -278,7 +278,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 24px;
+  height: var(--pip-sliver, 24px);
 }
 
 :root[pip-tucked="top"] #pip-tuck-away-badge::after {
@@ -289,7 +289,7 @@
   left: 0;
   right: 0;
   top: 0;
-  height: 24px;
+  height: var(--pip-sliver, 24px);
 }
 
 :root[pip-tucked="bottom"] #pip-tuck-away-badge::after {

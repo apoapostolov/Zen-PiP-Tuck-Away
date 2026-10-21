@@ -22,6 +22,7 @@ The mod adds one section to its settings dialog in Sine.
 | Tuck Control Overlay | on | Shows the tuck strip on the player, with an arrow and the words Tuck Away |
 | Tuck Direction | Smart | Which edge the strip tucks into: Smart, Right, Top, Left or Bottom |
 | Tuck when dragged past the edge | on | Drag the player so part of it is past a screen edge, then move the pointer off it to tuck that way |
+| Tuck width | Normal | How much of the player stays on screen while tucked: Normal (24px), Wide (48px) or Very wide (72px) |
 | Toggle with Ctrl+Shift+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
 | Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
@@ -42,6 +43,10 @@ Across that strip sits a small badge with a chevron pointing back out, on a fain
 ## Where the player opens
 
 The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, written when the player closes, and uses the place the player came from whenever it closes while tucked. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
+
+## How wide the strip is
+
+The strip is 24px by default, which reads as a drawer. **Wide** leaves 48px of the player on screen and **Very wide** leaves 72px, for when the video is worth more than a glance at the edge. The setting moves the geometry and the chevron badge together: the number is published as a custom property on the player's root element so the style sheet and the script cannot disagree, and a player that is already tucked slides to the new width the moment the setting changes.
 
 ## Clicks and double clicks
 

@@ -17,11 +17,27 @@
   }
 
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
+  const stringPref = (name, fallback) => {
+    try {
+      if (Services.prefs.getPrefType(name) === 0) {
+        return fallback;
+      }
+      return Services.prefs.getStringPref(name, fallback);
+    } catch (err) {
+      return fallback;
+    }
+  };
+
   const PREF_HOVER_PEEK = "pip-tuck-away.hover-peek";
   const PREF_AUTO_TUCK = "pip-tuck-away.auto-tuck";
   const PREF_DRAG_TUCK = "pip-tuck-away.drag-tuck";
+  const PREF_WIDTH = "pip-tuck-away.width";
 
-  const SLIVER = 24; // px of window left on screen while tucked
+  // How much of the window stays on screen while tucked. The narrow default is
+  // the one that reads as a drawer; the wider ones are for people who want more
+  // of the video to hold on to.
+  const WIDTHS = { normal: 24, wide: 48, "very-wide": 72 };
+  let sliver = WIDTHS.normal;
   const MARGIN = 16; // px kept from the screen edge when the window is out
   const GLIDE_MS = 260; // move duration
   // Hover peek. The pointer can rest still on the revealed video while the
@@ -329,13 +345,13 @@
     let x = clamp(window.screenX, b.left, b.right - w);
     let y = clamp(window.screenY, b.top, b.bottom - h);
     if (name === "left") {
-      x = b.left - w + SLIVER;
+      x = b.left - w + sliver;
     } else if (name === "right") {
-      x = b.right - SLIVER;
+      x = b.right - sliver;
     } else if (name === "bottom") {
-      y = b.bottom - SLIVER;
+      y = b.bottom - sliver;
     } else if (name === "top") {
-      y = b.top - h + SLIVER;
+      y = b.top - h + sliver;
     }
     return [Math.round(x), Math.round(y)];
   };
@@ -924,6 +940,27 @@
     return true;
   };
 
+  /**
+   * The strip width lives in two places that cannot read each other: the
+   * geometry here, and the badge, which is drawn by a style sheet. The number is
+   * published as a custom property on the root element so the sheet can use it,
+   * and a player that is already tucked moves to the width it was given.
+   */
+  const applyWidth = () => {
+    const width = WIDTHS[stringPref(PREF_WIDTH, "normal")] ?? WIDTHS.normal;
+    const changed = width !== sliver;
+    sliver = width;
+    try {
+      root.style?.setProperty("--pip-sliver", `${width}px`);
+    } catch (err) {
+      log("could not publish the strip width", err);
+    }
+    if (changed && state === "tucked" && spot && !animating && !document.fullscreenElement) {
+      window.moveTo(...(peeked ? flushPos(spot) : tuckedPos(spot)));
+    }
+    return width;
+  };
+
   const watchTucked = () => {
     if (tuckedTimer) {
       return;
@@ -962,6 +999,9 @@
     if (name === PREF_HOVER_PEEK && !pref(PREF_HOVER_PEEK, false) && peeked) {
       retract();
     }
+    if (name === PREF_WIDTH) {
+      applyWidth();
+    }
   };
 
   document.addEventListener("contextmenu", onContextMenu, true);
@@ -972,6 +1012,7 @@
   window.addEventListener("resize", onResize);
   document.addEventListener("fullscreenchange", onFullscreenChange);
   Services.prefs.addObserver(PREF_HOVER_PEEK, onPrefChange);
+  Services.prefs.addObserver(PREF_WIDTH, onPrefChange);
   watchTucked();
 
   /**
@@ -1550,6 +1591,7 @@
   };
 
   ensureBadge();
+  applyWidth();
 
   // One timer for the life of the window: a size read and four subtractions
   // every 200ms, which is what notices a player dragged past an edge.
@@ -1601,6 +1643,7 @@
     window.removeEventListener("resize", onResize);
     try {
       Services.prefs.removeObserver(PREF_HOVER_PEEK, onPrefChange);
+      Services.prefs.removeObserver(PREF_WIDTH, onPrefChange);
     } catch (err) {
       log("could not remove the preference observer", err);
     }
