@@ -54,7 +54,7 @@ The strip is a child of Firefox's own `#controls` layer, placed before everythin
 
 With **Tuck Control Overlay** off there is no strip at all, and tucking falls back to right-click, the chord and auto tuck. The strip also steps aside while the player is tucked or in fullscreen, because the strip at the edge is the way back.
 
-A peek is a look at the video, so the strip stays away while a reveal is bare and comes back with the rest of the controls: after a left press on the revealed player. Without that, hovering a tucked player put a tuck target back over the video the moment the pointer reached it.
+A peek is a look at the video, so nothing sits on it: the strip stays away while a reveal is bare, and so does every control. That last part needed a different lever. Zia, installed alongside, forces its controls visible with `:root[zia-dia] #controls:is(:hover, [showing], [keying]) .control-item{opacity:1 !important}`, which outranks any rule this mod can write in a sheet, and the scrim it draws behind them is what reads as the video dimming. So the whole control layer is switched off on the element itself while a peek is bare, `opacity: 0 !important` written straight onto `#controls`, which no sheet outranks and which takes the scrim with it. A left press on the revealed player switches the layer back on and hands the controls over for a couple of seconds. The buttons go inert while the layer is dark, so nothing gets clicked blind, but the layer itself stays a drag surface.
 
 The overlay is on by default and works whether or not Zia is installed. When Zia is there, both its button and this strip do the same thing, since both end up in the same tuck.
 

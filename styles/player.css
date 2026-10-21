@@ -187,6 +187,15 @@
 
 /* ---------- a bare reveal: no controls, no gradient, no hidden cursor -- */
 
+/* These rules can only do so much. Zia, which is installed alongside this mod,
+ * carries :root[zia-dia] #controls:is(:hover, [showing], [keying]) .control-item
+ * { opacity: 1 !important }, and its #controls::before is the scrim that reads as
+ * the video dimming. That selector is stronger than anything written here, and
+ * it is the pointer being on the player that triggers it. The script therefore
+ * switches the whole layer off on the element itself, which no sheet can
+ * outrank; these rules stay as the first pass and as the honest fallback when
+ * Zia is absent. */
+
 :root[pip-tuck-away-bare] .control-item {
   opacity: 0 !important;
   transition: none !important;

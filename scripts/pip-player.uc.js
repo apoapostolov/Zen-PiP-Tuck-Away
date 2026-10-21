@@ -497,6 +497,7 @@
    */
   const setBare = (on) => {
     bare = !!on;
+    hideControlLayer(bare);
     if (!bare) {
       if (root.hasAttribute(BARE_ATTR)) {
         root.removeAttribute(BARE_ATTR);
@@ -1016,9 +1017,68 @@
 
   const badge = () => document.getElementById(BADGE_ID);
 
+  const controlsNode = () => {
+    try {
+      return document.getElementById("controls");
+    } catch (err) {
+      return null;
+    }
+  };
+
+  /**
+   * A bare reveal has to be bare. Zia adds elements of its own to the control
+   * layer, Firefox raises opacity through `#controls[showing]`, `[keying]` and
+   * hover rules of its own, and a style sheet of ours only wins that fight on
+   * specificity and load order. A property set on the element itself wins
+   * every one of them, so the whole layer is switched off there: nothing
+   * inside it can be more visible than the layer holding it, whatever it
+   * carries and whoever put it there.
+   */
+  /** The things in the layer that take a press, so they cannot be pressed blind. */
+  const layerControls = () => {
+    const controls = controlsNode();
+    if (!controls?.querySelectorAll) {
+      return [];
+    }
+    try {
+      return Array.from(controls.querySelectorAll("button,input"));
+    } catch (err) {
+      return [];
+    }
+  };
+
+  const hideControlLayer = (on) => {
+    const controls = controlsNode();
+    if (!controls?.style?.setProperty) {
+      return;
+    }
+    try {
+      if (on) {
+        // Every child of this layer fades with it, including the gradient bar
+        // at the bottom, whatever classes they carry and whoever added them.
+        controls.style.setProperty("opacity", "0", "important");
+        for (const node of layerControls()) {
+          node.style?.setProperty?.("pointer-events", "none", "important");
+        }
+      } else {
+        controls.style.removeProperty("opacity");
+        for (const node of layerControls()) {
+          node.style?.removeProperty?.("pointer-events");
+        }
+      }
+    } catch (err) {
+      log("could not switch the control layer", err);
+    }
+  };
+
   const playerHolder = () => {
     try {
-      return document.querySelector(".player-holder");
+      const found = document.querySelector(".player-holder");
+      if (found) {
+        return found;
+      }
+      // The video lives in a browser element; its parent is the holder.
+      return document.getElementById("browser")?.parentNode ?? null;
     } catch (err) {
       return null;
     }
@@ -1051,6 +1111,7 @@
   /** Firefox shows the controls on enter and hides them on its own timer, so a
    * press that un-bares them has to hand them over with a visible window. */
   const offerControls = () => {
+    hideControlLayer(false);
     root.setAttribute(CONTROLS_ATTR, "");
     if (controlsTimer) {
       clearTimeout(controlsTimer);
@@ -1272,6 +1333,7 @@
         clearTimeout(controlsTimer);
         controlsTimer = null;
       }
+      hideControlLayer(false);
       document.getElementById(BADGE_ID)?.remove();
       root.removeAttribute(BARE_ATTR);
       document.getElementById(OVERLAY_ID)?.remove();
