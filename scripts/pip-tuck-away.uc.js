@@ -258,8 +258,15 @@
   };
 
   installPipHook();
-  window.addEventListener("deactivate", floatSuppressed);
-  window.addEventListener("activate", foldBack);
+  // Firefox fires "activate" on chrome windows. Older builds and some paths
+  // only give "focus"/"blur", so both pairs are wired and each handler is
+  // idempotent.
+  for (const type of ["deactivate", "blur"]) {
+    window.addEventListener(type, floatSuppressed);
+  }
+  for (const type of ["activate", "focus"]) {
+    window.addEventListener(type, foldBack);
+  }
 
   // ---------- teardown (Sine calls this when the mod is disabled or updated)
 
@@ -270,8 +277,12 @@
       log("could not unregister the window observer", err);
     }
     window.removeEventListener("keydown", onKeyDown, true);
-    window.removeEventListener("deactivate", floatSuppressed);
-    window.removeEventListener("activate", foldBack);
+    for (const type of ["deactivate", "blur"]) {
+      window.removeEventListener(type, floatSuppressed);
+    }
+    for (const type of ["activate", "focus"]) {
+      window.removeEventListener(type, foldBack);
+    }
     const api = pipApi();
     if (api && trueOriginal && api.handlePictureInPictureRequest.__pipTuckAway) {
       api.handlePictureInPictureRequest = trueOriginal;
