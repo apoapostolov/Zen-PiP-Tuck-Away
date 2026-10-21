@@ -44,6 +44,8 @@ Zen's media card is a row in the sidebar with a thumbnail, the name, the playtim
 
 The widget shows a copy of the picture, not a player. A content actor in the page copies the video's frames into a small canvas, which is drawn in the sidebar at the widget's width and the video's own shape, in room made inside the toolbar itself. The video never moves: the page keeps playing it, the page keeps its sound, and nothing is loaded twice. A click on the picture plays or pauses, and the two small buttons that appear on hover do the same and open a real player if you would rather have one.
 
+The panel is pixels in the sidebar, not a window. Nothing in this mod moves a player window any more: the place a player remembers, and whether it was tucked and into which edge, are its own and are never written or restored by the widget. The panel follows the sidebar's own controls instead, at the widget's width and the video's shape, in room made inside the toolbar, and it rides with the card when the card expands on hover.
+
 That is the point of doing it this way. Picture-in-picture is never in use while the browser is in front, so it keeps its own remembered size, its own place and its own tucked edge, and it is exactly what appears the moment you leave the browser. Nothing about it is borrowed, moved or resized by this mod.
 
 ### One rule, and every case comes out of it
@@ -64,7 +66,7 @@ Nothing is drawn until a real frame has arrived. Until then the panel is not in 
 
 Two honest limits:
 
-- **Protected video copies as black.** A frame copy of an encrypted stream cannot be read, so when a page reports a media key system the widget steps aside and a normal player window opens instead, docked where the panel would have been. A tab that turns out to be protected while another tab is already in the widget is left alone rather than blackening the panel. YouTube, Twitch and most sites are fine; a DRM service is not.
+- **Protected video copies as black.** A frame copy of an encrypted stream cannot be read, so when a page reports a media key system the widget steps aside and a normal player window opens instead, at its own remembered place and in its own tucked state, untouched. A tab that turns out to be protected while another tab is already in the widget is left alone rather than blackening the panel. YouTube, Twitch and most sites are fine; a DRM service is not.
 - **A copy costs a little.** Frames are downscaled to 480px on the long edge and sent about twenty times a second, which is nothing on a modern machine but is not free. A paused video sends one frame and then stays quiet.
 
 ## Going back to the tab
@@ -85,7 +87,7 @@ A tucked strip stays 24px on screen by default, or 48 or 72 with the wider setti
 
 ## Known limits
 
-- The docked video is a window, so it sits above the sidebar and appears in the taskbar. It is above other applications while Zen is in the background.
+- The video in the widget is a copy of the picture, not the player, so it has no controls of its own beyond play and pause, and it cannot show protected video.
 - A browser mod cannot take a keyboard chord while another application has focus. The platform has no hotkey API, so `Ctrl+Alt+T` works in Zen's windows and nowhere else.
 - The strip is a share of the player: 20% of the width and 90% of the height along a side, or 90% by 20% across the top or bottom.
 - Hover peeking is judged by the pointer's position and the document's own hover state, never by pointer idleness, so a still pointer on the video holds it open. On a multi-monitor setup the first test needs a real video and a real move.
@@ -108,7 +110,7 @@ This mod needs nothing else installed. If [Zia](https://github.com/z1n-k/zia) is
 
 | File | Runs in | Job |
 | --- | --- | --- |
-| `scripts/pip-tuck-away.uc.js` | any browser window | Watches for player windows, loads the player half into each one, owns the chord on every window, and docks the player into the media card |
+| `scripts/pip-tuck-away.uc.js` | any browser window | Watches for player windows, loads the player half into each one, owns the chord on every window, and shows a video in the media widget |
 | `scripts/pip-player.uc.js` | the picture-in-picture player | The move maths, the tuck button, the direction map, the hover peek, the memory, and the toggle API |
 | `styles/player.css` | the picture-in-picture player | The strip, the picker, the button, the frosted tucked strip and the bare reveal |
 | `chrome.css` | the browser window | The panel the widget shows a video in |

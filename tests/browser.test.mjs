@@ -1,6 +1,7 @@
 // Headless harness for pip-tuck-away.uc.js: the browser-window half.
 import fs from "node:fs";
 import vm from "node:vm";
+import { dirname, join } from "node:path";
 
 const CODE = fs.readFileSync(process.argv[2], "utf8");
 const PLAYER_URL = "chrome://global/content/pictureinpicture/player.xhtml";
@@ -27,6 +28,14 @@ function mk(prefsIn = {}, opts = {}) {
     const w = {
       location: { href },
       closed: false,
+      moves: [],
+      resizes: [],
+      moveTo(x, y) {
+        w.moves.push([x, y]);
+      },
+      resizeTo(width, height) {
+        w.resizes.push([width, height]);
+      },
       close() {
         w.closed = true;
       },
@@ -945,78 +954,6 @@ const mirrorActor = {
 
 const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, bottom: 980 };
 
-// 23a. the player is docked into the media card's gap
-{
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
-  const calls = [];
-  const undocks = [];
-  t.windows[0].__pipTuckAway = {
-    dock: (rect) => calls.push(rect),
-    undock: () => undocks.push(true),
-    isDocked: () => undocks.length === 0 && calls.length > 0,
-    aspect: () => 16 / 9,
-  };
-  await t.tick();
-  check("docked once", calls.length >= 1, true);
-  // card at left 20, width 300 -> panel 288 wide and 162 tall at 16:9, sitting
-  // inside the widget's own box, 6px in from its top edge (900).
-  check("inside the widget, at its width", calls[0], { x: 26, y: 232, width: 288, height: 162 });
-  check("and nothing was added to the card", t.dockSpacers.length, 0);
-  // 162 for the panel, 6px above and below it, and the card's own hover growth
-  // (200 - the 80px it already had) capped at 96.
-  check("room is made in the widget itself", t.barStyle.props["--zen-media-collapsed-height"], "calc(80px + 270px)");
-  check("nothing was undocked", undocks.length, 0);
-}
-
-// 23b. the gap is stable while nothing moves
-{
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
-  const calls = [];
-  t.windows[0].__pipTuckAway = {
-    dock: (rect) => calls.push(rect),
-    undock: () => {},
-    isDocked: () => true,
-    aspect: () => 4 / 3,
-  };
-  await t.tick();
-  await t.tick();
-  check("the same rectangle every time", JSON.stringify(calls[0]) === JSON.stringify(calls[1]), true);
-  check("sized to the video's shape", calls[0].height, 216);
-}
-
-// 23c. the setting off means the player is a player
-{
-  const t = mk({ "pip-tuck-away.in-widget": false }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
-  let undocked = 0;
-  const calls = [];
-  t.windows[0].__pipTuckAway = {
-    dock: (rect) => calls.push(rect),
-    undock: () => undocked++,
-    isDocked: () => true,
-    aspect: () => 16 / 9,
-  };
-  await t.tick();
-  check("never docked", calls.length, 0);
-  check("and taken out of the widget", undocked >= 1, true);
-  check("the room is given back", t.barStyle.props["--zen-media-collapsed-height"], undefined);
-}
-
-// 23d. no card on screen means no dock
-{
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "absent", dockCard: true, barRect: BAR_AT_BOTTOM });
-  let undocked = 0;
-  const calls = [];
-  t.windows[0].__pipTuckAway = {
-    dock: (rect) => calls.push(rect),
-    undock: () => undocked++,
-    isDocked: () => true,
-    aspect: () => 16 / 9,
-  };
-  await t.tick();
-  check("the player comes out", undocked >= 1, true);
-  check("the room is given back", t.barStyle.props["--zen-media-collapsed-height"], undefined);
-}
-
 // 26. coming back to the tab the player came from puts the video back
 {
   const t = mk({ "pip-tuck-away.in-widget": false });
@@ -1056,29 +993,6 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("left alone", t.windows[0].closed, false);
 }
 
-// 23e. the panel leaves the widget when the application goes to the background
-{
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
-  const calls = [];
-  const undocks = [];
-  t.windows[0].__pipTuckAway = {
-    dock: (rect) => calls.push(rect),
-    undock: () => undocks.push(true),
-    isDocked: () => undocks.length === 0 && calls.length > 0,
-    aspect: () => 16 / 9,
-  };
-  await t.tick();
-  check("embedded while the browser is in front", calls.length >= 1, true);
-  t.setFront(false); // another application came forward
-  await t.tick();
-  check("and handed back as a real player", undocks.length, 1);
-  check("the room is given back", t.barStyle.props["--zen-media-collapsed-height"], undefined);
-  t.setFront(true); // the browser comes back
-  await t.tick();
-  check("it is embedded again", calls.length >= 2, true);
-  check("with the room made again", t.barStyle.props["--zen-media-collapsed-height"] !== undefined, true);
-}
-
 // 23f. a player that is already open is never doubled up
 {
   const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
@@ -1093,26 +1007,6 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   await tick();
   await tick();
   check("the player that was there folds away", t.windows[0].closed, true);
-}
-
-// 23g. the gap between the panel and the card stays the same size
-{
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
-  const calls = [];
-  t.windows[0].__pipTuckAway = {
-    dock: (rect) => calls.push(rect),
-    undock: () => {},
-    isDocked: () => calls.length > 0,
-    aspect: () => 16 / 9,
-  };
-  await t.tick();
-  const collapsed = calls.at(-1);
-  t.dockCardEl.rect = { left: 20, top: 340, width: 300, height: 260 }; // hovered: the card grew
-  await t.tick();
-  const expanded = calls.at(-1);
-  check("the panel moved up with the card", expanded.y < collapsed.y, true);
-  check("six pixels above the card at rest", collapsed.y + collapsed.height + 6, 400);
-  check("and six pixels above it while hovered", expanded.y + expanded.height + 6, 340);
 }
 
 // 30. in front, a playing video is shown by the widget and no player is opened
@@ -1175,7 +1069,13 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("the canvas has pixels", t.mirror().firstElementChild.painted?.width, 2);
   check("the panel appears with the first frame", t.mirror().hasAttribute("waiting"), false);
   check("it sits above the card, at the card's width", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
-  check("and the widget makes room for it", t.barStyle.props["--zen-media-collapsed-height"] !== undefined, true);
+  check("inside the widget's own box, six pixels in from its left edge", t.mirror().style.left, "26px");
+  check(
+    "and the widget makes exactly that much room",
+    t.barStyle.props["--zen-media-collapsed-height"],
+    "calc(80px + 270px)"
+  );
+  check("with nothing added to the card", t.dockSpacers.length, 0);
   check("and the play button says pause", t.mirror().querySelector(".pip-tuck-away-mirror-button path").getAttribute("d").startsWith("M4 2h4"), true);
   check("a click on the picture is a play/pause", (t.mirror().firstElementChild.fire("click", {}) ?? true) && mirrorActor.sent.some((m) => m.name === "PipMirror:Control" && m.data.action === "toggle"), true);
 }
@@ -1191,6 +1091,15 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   t.dockCardEl.rect = { left: 20, top: 400, width: 200, height: 160 };
   await t.tick();
   check("and it follows the widget when the widget changes", t.mirror().style.width, "188px");
+  // The card grew, which is what hovering it does: the room follows it, up to
+  // the point where the hover rows stop growing.
+  t.dockCardEl.rect = { left: 20, top: 340, width: 200, height: 160 };
+  await t.tick();
+  check(
+    "and the room follows the card's own growth",
+    t.barStyle.props["--zen-media-collapsed-height"],
+    "calc(80px + 198px)"
+  );
 }
 
 // 30e2. a video that never produces a picture becomes a player window
@@ -1457,6 +1366,38 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   t.tabStrip.fire("TabClose", { linkedBrowser: A.browser });
   check("the panel is gone", t.mirror(), null);
   check("and the room went with it", t.barStyle.props["--zen-media-collapsed-height"], undefined);
+}
+
+// 32. the widget never touches the player's own place or size
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const player = t.windows[0];
+  t.pipWindows.push(player); // a player window is on screen, at its remembered place
+  const A = wgpFor(false, { selected: false, bcId: 141 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(141, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(141, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  await t.tick();
+  t.runTimers();
+  check("the panel is in the widget", !!t.mirror(), true);
+  check("and the player window was never moved", player.moves, []);
+  check("or resized", player.resizes, []);
+}
+
+// 32b. the browser half has no way to move a window at all
+{
+  const code = fs.readFileSync(process.argv[2], "utf8");
+  check("no moveTo", /\bmoveTo\b/.test(code), false);
+  check("no resizeTo", /\bresizeTo\b/.test(code), false);
+  check("no docking", /\bdock\b/i.test(code.replace(/dockCard|dockSpacers|dockMain|dockControls|DOCK_ATTR/g, "")), false);
+}
+
+// 32c. and no way to write the remembered place, which is the player's own
+{
+  const code = fs.readFileSync(process.argv[2], "utf8");
+  check("the remembered place is never named here", /pip-tuck-away\.home/.test(code), false);
+  check("nor the tuck spot", /pip-tuck-away\.spot|pip-tuck-away\.tucked/.test(code), false);
 }
 
 // 22. unload puts the original handler back

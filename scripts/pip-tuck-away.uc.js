@@ -317,9 +317,8 @@
           attachKeys(subject);
           setTimeout(() => {
             decorate(subject);
-            // A player window is the only window worth docking, and by now the
-            // dock machinery exists.
-            startDockLoop();
+            // A player window is the platform's own. This mod never moves it:
+            // its remembered place and its tucked edge belong to it alone.
           }, 0);
         },
         { once: true }
@@ -463,47 +462,24 @@
   // way to render a video's pixels inside the document is a canvas mirror, which
   // loses audio and fails on anything protected.
   //
-  // So what is docked is the window, not the pixels. A gap is reserved inside
+  // The panel is pixels in the sidebar, so the room it needs is reserved inside
   // the card, under the name and the playtime, and the player window is sized
   // and moved into it. The video is the real video, with its real sound, and
   // nothing is reloaded, so playback never restarts.
 
-  const DOCK_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
-  const DOCK_INSET = 6; // px between the panel and the edges of its slot
-  const DOCK_HEIGHT_VAR = "--zen-media-collapsed-height";
-  const DOCK_GROWTH_MAX = 96; // the most the card's hover rows can add, as slack
+  const PANEL_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
+  const PANEL_INSET = 6; // px between the panel and the edges of its slot
+  const PANEL_HEIGHT_VAR = "--zen-media-collapsed-height";
+  const PANEL_GROWTH_MAX = 96; // the most the card's hover rows can add, as slack
 
   // The bar's own height, read once before any room has been made for the panel,
   // so the room is added to the real thing rather than to a guess.
-  let reserveBase = null;
+  let panelBase = null;
 
-  /**
-   * The panel is embedded only while its own Zen window is the one in front.
-   *
-   * A docked panel is a window, and a window belongs to the widget the way a
-   * picture on a wall does: step outside the room and there is nothing to look
-   * at. The focus manager reports the player window when the pointer is on the
-   * panel itself, its own window while the browser is in use, and null once the
-   * application is in the background, which is the moment to hand the player
-   * back as a real picture-in-picture that floats over whatever comes next.
-   */
-  const panelBelongsInWidget = (win) => {
-    let active = null;
+  const releasePanelRoom = () => {
+    panelBase = null;
     try {
-      active = Services.focus?.activeWindow ?? null;
-    } catch (err) {
-      return true; // cannot tell: leave it where it is
-    }
-    if (!active) {
-      return false;
-    }
-    return active === window || active === win;
-  };
-
-  const releaseReserve = () => {
-    reserveBase = null;
-    try {
-      window.document?.querySelector?.(MEDIA_BAR)?.style?.removeProperty?.(DOCK_HEIGHT_VAR);
+      window.document?.querySelector?.(MEDIA_BAR)?.style?.removeProperty?.(PANEL_HEIGHT_VAR);
     } catch (err) {
       // No bar to put back.
     }
@@ -520,27 +496,26 @@
    * then inside the widget rather than floating over the sidebar, and it travels
    * with the box as the card expands on hover.
    */
-  const reserveSlot = (bar, height, cardHeight) => {
+  const reservePanelRoom = (bar, height, cardHeight) => {
     try {
       const style = bar?.style;
       if (!style?.setProperty) {
         return;
       }
-      if (reserveBase === null) {
-        reserveBase = Math.round(bar.getBoundingClientRect?.().height ?? 0) || 0;
+      if (panelBase === null) {
+        panelBase = Math.round(bar.getBoundingClientRect?.().height ?? 0) || 0;
       }
       // The base height already holds the card, so only what the card grows by
       // when it is hovered has to be added, on top of the panel itself. Adding
       // the card's whole height reserves its room twice and leaves a hole
       // between the panel and the card that nobody asked for.
-      const grown = Math.max(0, Math.min(Math.round(cardHeight - reserveBase), DOCK_GROWTH_MAX));
-      const room = Math.round(height + DOCK_INSET * 2 + grown);
-      style.setProperty(DOCK_HEIGHT_VAR, `calc(${reserveBase}px + ${room}px)`);
+      const grown = Math.max(0, Math.min(Math.round(cardHeight - panelBase), PANEL_GROWTH_MAX));
+      const room = Math.round(height + PANEL_INSET * 2 + grown);
+      style.setProperty(PANEL_HEIGHT_VAR, `calc(${panelBase}px + ${room}px)`);
     } catch (err) {
       log("could not make room for the panel", err);
     }
   };
-  const DOCK_SYNC_MS = 60;
 
   const mediaCards = () => {
     try {
@@ -552,148 +527,6 @@
     } catch (err) {
       return [];
     }
-  };
-
-  /** The card under the video's own tab, or the only card there is. */
-  const cardForPlayer = (win) => {
-    const cards = mediaCards();
-    if (!cards.length) {
-      return null;
-    }
-    if (cards.length === 1) {
-      return cards[0];
-    }
-    try {
-      const api = pipApi();
-      const browser = api?.weakWinToBrowser?.get?.(win);
-      const label = browser ? window.gBrowser?.getTabForBrowser?.(browser)?.label : null;
-      if (label) {
-        const match = cards.find((card) =>
-          card.querySelector?.(".zen-media-title")?.textContent?.trim() === label.trim()
-        );
-        if (match) {
-          return match;
-        }
-      }
-    } catch (err) {
-      // fall through to the first card
-    }
-    return cards[0];
-  };
-
-  const dockAspect = (win) => {
-    const aspect = win?.__pipTuckAway?.aspect?.();
-    return Number.isFinite(aspect) && aspect > 0.3 && aspect < 4 ? aspect : 16 / 9;
-  };
-
-  /**
-   * Where the picture should sit, in screen pixels.
-   *
-   * The card itself is not touched. Zen's media toolbar deliberately keeps its
-   * collapsed height and lets the expanded cards float above it, so anything
-   * added inside a card is laid out against a box that was never meant to grow,
-   * and the card the mod is supposed to be joining is the thing that goes
-   * wrong. The panel therefore hangs above the widget, at the widget's width and
-   * the video's shape, and Zen's own markup is left exactly as it was.
-   */
-  const dockGeometry = (card, win) => {
-    const bar = window.document?.querySelector?.(MEDIA_BAR);
-    const cardRect = card?.getBoundingClientRect?.();
-    if (!bar || !cardRect || cardRect.width < 60) {
-      return null;
-    }
-    const width = Math.max(80, Math.round(cardRect.width - DOCK_INSET * 2));
-    const limit = Math.round((window.innerHeight || 800) * DOCK_MAX_SHARE);
-    const height = Math.max(45, Math.min(Math.round(width / dockAspect(win)), limit));
-    const originX = Number.isFinite(window.mozInnerScreenX) ? window.mozInnerScreenX : window.screenX;
-    const originY = Number.isFinite(window.mozInnerScreenY) ? window.mozInnerScreenY : window.screenY;
-    reserveSlot(bar, height, cardRect.height);
-    // The panel sits a hair above the card's own top edge, and the room reserved
-    // above it is what the card takes when it expands on hover. That keeps the
-    // gap between the two the same size in both states: the box grows, the card
-    // grows into it, and the panel rides up with the card's edge.
-    return {
-      x: originX + cardRect.left + DOCK_INSET,
-      y: originY + cardRect.top - height - DOCK_INSET,
-      width,
-      height,
-    };
-  };
-
-  let dockTimer = null;
-  let dockedWindow = null;
-  let lastDockNote = "";
-
-  const stopDockLoop = () => {
-    if (dockTimer) {
-      clearInterval(dockTimer);
-      dockTimer = null;
-    }
-  };
-
-  const dockTick = () => {
-    const win = Services.wm.getMostRecentWindow("Toolkit:PictureInPicture");
-    if (!win) {
-      if (dockedWindow?.__pipTuckAway) {
-        dockedWindow.__pipTuckAway.undock?.();
-      }
-      dockedWindow = null;
-      releaseReserve();
-      stopDockLoop();
-      return;
-    }
-    const api = win.__pipTuckAway;
-    if (!api?.dock) {
-      // The player document is still loading. The next tick finds it.
-      return;
-    }
-    if (!pref(WIDGET_PREF, true)) {
-      if (api.isDocked?.()) {
-        api.undock?.();
-      }
-      dockedWindow = null;
-      releaseReserve();
-      return;
-    }
-    if (!panelBelongsInWidget(win)) {
-      if (api.isDocked?.()) {
-        api.undock?.();
-        trace("dock: out of the widget, this window is not in front");
-      }
-      dockedWindow = null;
-      if (reserveBase !== null) {
-        releaseReserve();
-      }
-      return;
-    }
-    const card = cardForPlayer(win);
-    const rect = card ? dockGeometry(card, win) : null;
-    const seen = rect
-      ? `${rect.x},${rect.y} ${rect.width}x${rect.height}`
-      : `no card (${mediaCardState()})`;
-    if (seen !== lastDockNote) {
-      lastDockNote = seen;
-      trace(`dock: ${seen}`);
-    }
-    if (!rect) {
-      // The card is not on screen: the player is a player again.
-      if (api.isDocked?.()) {
-        api.undock?.();
-      }
-      dockedWindow = null;
-      releaseReserve();
-      return;
-    }
-    dockedWindow = win;
-    api.dock?.(rect);
-  };
-
-  const startDockLoop = () => {
-    if (dockTimer) {
-      return;
-    }
-    dockTimer = setInterval(dockTick, DOCK_SYNC_MS);
-    dockTick();
   };
 
   /**
@@ -965,13 +798,13 @@
     if (!cardRect || !barRect || cardRect.width < 60) {
       return;
     }
-    const width = Math.max(80, Math.round(cardRect.width - DOCK_INSET * 2));
-    const limit = Math.round((window.innerHeight || 800) * DOCK_MAX_SHARE);
+    const width = Math.max(80, Math.round(cardRect.width - PANEL_INSET * 2));
+    const limit = Math.round((window.innerHeight || 800) * PANEL_MAX_SHARE);
     const height = Math.max(45, Math.min(Math.round(width / mirrorAspect), limit));
-    reserveSlot(bar, height, cardRect.height);
+    reservePanelRoom(bar, height, cardRect.height);
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
-    box.style.left = `${Math.round(cardRect.left - barRect.left + DOCK_INSET)}px`;
+    box.style.left = `${Math.round(cardRect.left - barRect.left + PANEL_INSET)}px`;
   };
 
   /**
@@ -1256,8 +1089,8 @@
     if (box) {
       box.remove();
     }
-    if (reserveBase !== null) {
-      releaseReserve();
+    if (panelBase !== null) {
+      releasePanelRoom();
     }
     if (had && reason) {
       trace(`mirror: stopped (${reason})`);
@@ -1554,7 +1387,7 @@
     if (floatedWindow && !floatedWindow.closed) {
       return;
     }
-    // A player may already be on screen, docked in the widget or tucked into an
+    // A player may already be on screen, at its remembered place or tucked into an
     // edge. Asking the tab again would open a second one on top of it, which
     // reads as the browser "switching to normal picture-in-picture" the moment
     // another application comes forward. Keep the player that is there, and keep
@@ -1780,9 +1613,6 @@
   lastSelected = window.gBrowser?.selectedBrowser ?? null;
   installPipHook();
   startCardWatch();
-  if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
-    startDockLoop();
-  }
 
   trace(
     `browser half loaded; inline=${pref(INLINE_PREF, false)} ` +
@@ -1801,9 +1631,8 @@
   // ---------- teardown (Sine calls this when the mod is disabled or updated)
 
   const unload = () => {
-    stopDockLoop();
     teardownMirror();
-    releaseReserve();
+    releasePanelRoom();
     if (cardWatchTimer) {
       clearInterval(cardWatchTimer);
       cardWatchTimer = null;

@@ -429,17 +429,3 @@
   opacity: 0.7;
 }
 
-/* Docked in Zen's media card the player is a panel, not a window: the picture
- * is the whole of it, so none of the player's own furniture is drawn. The
- * control bar is built for a window and reads as a wall of buttons at panel
- * size, so it is switched off at the element as well as in the script. */
-:root[pip-docked] #controls,
-:root[pip-docked] #pip-tuck-away-overlay,
-:root[pip-docked] #pip-tuck-away-badge,
-:root[pip-docked] #pip-tuck-away-arm,
-:root[pip-docked] #pip-tuck-away-picker {
-  display: none !important;
-}
-:root[pip-docked] .player-holder {
-  filter: none !important;
-}

@@ -1189,6 +1189,16 @@ const check = (name, actual, expected) => {
   check("and plain again", t.attrs.has("pip-frosted"), false);
 }
 
+// 33. the player has no state for the widget: its place and its tuck are its own
+{
+  const code = readFileSync(process.argv[2], "utf8");
+  check("no docked state in the player", /pip-docked/.test(code), false);
+  check("no dock in its own API", /\bdock\b|isDocked|undock/i.test(code), false);
+  const css = readFileSync(join(dirname(process.argv[2]), "..", "styles", "player.css"), "utf8");
+  check("and no docked rules in the sheet", /pip-docked/.test(css), false);
+  check("while the tuck rules are still there", /:root\[pip-tucked\]/.test(css), true);
+}
+
 // 25. nothing else is needed for any of it
 {
   const t = mk({});
@@ -1546,117 +1556,6 @@ const check = (name, actual, expected) => {
     true
   );
   check("and the memory itself is untouched", String(t.getPref("pip-tuck-away.home")), "1122,75");
-}
-
-// 24a. the player can be docked into Zen's media card
-{
-  const t = mk({});
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  check("the window takes the gap's size", t.size(), [320, 180]);
-  check("and the gap's place", t.pos(), [100, 200]);
-  check("marked as docked", t.attrs.has("pip-docked"), true);
-  check("and it is not a player any more", t.api.isDocked(), true);
-}
-
-// 24b. the same rectangle is not moved again
-{
-  const t = mk({});
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  const before = t.moves.length;
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  check("an unchanged gap is a no-op", t.moves.length, before);
-  t.api.dock({ x: 100, y: 260, width: 320, height: 180 });
-  check("a moved gap is followed", t.pos(), [100, 260]);
-}
-
-// 24c. undocking puts the player back where it belongs
-{
-  const t = mk({ "pip-tuck-away.home": "700,300" });
-  t.runTimers();
-  t.flush();
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  t.api.undock();
-  check("no longer docked", t.attrs.has("pip-docked"), false);
-  check("back at the remembered place", t.pos(), [700, 300]);
-}
-
-// 24d. tucking a docked panel leaves the widget first
-{
-  const t = mk({ "pip-tuck-away.home": "700,300" });
-  t.runTimers();
-  t.flush();
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  t.api.tuck("right");
-  t.flush();
-  check("tucked", t.api.isTucked(), true);
-  check("and out of the widget", t.attrs.has("pip-docked"), false);
-}
-
-// 24e. a docked window is not the user's position
-{
-  const t = mk({ "pip-tuck-away.home": "700,300" });
-  t.runTimers();
-  t.flush();
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  t.tickIntervals();
-  check("the memory is untouched", t.getPref("pip-tuck-away.home"), "700,300");
-}
-
-// 24g. a docked panel never hands its own controls back
-{
-  const t = mk({});
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  check("docked means bare", t.attrs.has("pip-tuck-away-bare"), true);
-  t.clickPlayer();
-  check("a press does not bring them back", t.attrs.has("pip-tuck-away-bare"), true);
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 }); // an unchanged rectangle
-  check("and the next tick keeps it bare", t.attrs.has("pip-tuck-away-bare"), true);
-  const css = t.overlayStyle()?.textContent ?? "";
-  check("the bar is switched off in the sheet too", css.includes(":root[pip-docked] #controls"), true);
-}
-
-// 24h. leaving the widget gives the player its own size back
-{
-  const t = mk({ "pip-tuck-away.home": "700,300" });
-  t.runTimers();
-  t.flush();
-  check("a player's own size to start", t.size(), [380, 214]);
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  check("shrunk into the widget", t.size(), [320, 180]);
-  t.api.undock();
-  check("and its own size again", t.size(), [380, 214]);
-  check("at the remembered place", t.pos(), [700, 300]);
-  check("and not tucked", t.api.isTucked(), false);
-}
-
-// 24i. a player tucked before the widget is tucked again after it
-{
-  const t = mk({ "pip-tuck-away.home": "700,300" });
-  t.runTimers();
-  t.flush();
-  t.api.tuck("right");
-  t.flush();
-  check("tucked to start", t.api.isTucked(), true);
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  t.flush();
-  check("in the widget", t.attrs.has("pip-docked"), true);
-  check("at panel size", t.size(), [320, 180]);
-  t.api.undock();
-  t.flush();
-  check("tucked again", t.api.isTucked(), true);
-  check("at the player's own size", t.size(), [380, 214]);
-  check("with the strip on its edge", t.pos()[0] > 1600, true);
-}
-
-// 24f. a platform resize cannot tear the panel out of the gap
-{
-  const t = mk({});
-  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
-  t.window.outerWidth = 500; // the platform restoring its own geometry
-  t.window.outerHeight = 400;
-  t.winFire("resize");
-  check("the panel keeps the gap's size", t.size(), [320, 180]);
-  check("and the gap's place", t.pos(), [100, 200]);
 }
 
 // 14a. a player that opens where Firefox saved a tucked position goes home

@@ -474,13 +474,6 @@
   };
 
   const tuck = (side = null) => {
-    if (docked) {
-      // Tucking a docked panel means leaving the widget first, otherwise the
-      // strip would be drawn inside the card's gap, and the strip is the size of
-      // a player rather than the size of a panel.
-      leaveDock();
-      restoreStandard();
-    }
     if (document.fullscreenElement) {
       return false;
     }
@@ -667,10 +660,7 @@
    * until the user reaches for them with a left press.
    */
   const setBare = (on) => {
-    // A docked panel is a picture in a widget. Its own control bar is built for
-    // a window and does not fit a panel that size, so it never comes back while
-    // the player is docked, whatever asks for it.
-    bare = docked ? true : !!on;
+    bare = !!on;
     hideControlLayer(bare);
     if (!bare) {
       if (root.hasAttribute(BARE_ATTR)) {
@@ -976,18 +966,6 @@
   const onDragRegionPress = () => handlePress(0);
 
   const onResize = () => {
-    if (docked) {
-      // The dock decides the size and the place. A resize here is the platform
-      // putting back the geometry it saved, and following it would tear the
-      // panel out of the card's gap.
-      try {
-        window.resizeTo(docked.width, docked.height);
-      } catch (err) {
-        // A window on its way out needs nothing.
-      }
-      moveWindow(docked.x, docked.y);
-      return;
-    }
     updateOverlay();
     refreshSide();
     if (state === "tucked") {
@@ -1127,135 +1105,6 @@
   };
 
   let persistedHome = null; // the last value written, so a poll cannot spam prefs
-  // ---------- docked in the media widget
-  //
-  // Zen's media card is a row in the sidebar with the name, the playtime and the
-  // buttons. The mod reserves a gap under the name and the playtime and parks
-  // the player window in it, so the video reads as part of the card. The window
-  // is still a window: what is docked is where it sits, not where the picture
-  // comes from, and the video never restarts because nothing is reloaded.
-  const DOCK_ATTR = "pip-docked";
-  let docked = null; // { x, y, width, height } in screen pixels
-  // The player as it was before it went into the widget: its own size, and
-  // whether it was tucked. Outside the widget it is a player again, and a player
-  // is the size picture-in-picture makes it and tucked if that is how it was.
-  let beforeDock = null;
-
-  const isDocked = () => !!docked;
-
-  /**
-   * Take the window to the rectangle the browser half measured, without any of
-   * the player's own furniture: no strip, no overlay, no controls. What is left
-   * is the picture, sitting in the card's gap.
-   */
-  const dock = (rect) => {
-    if (!rect || document.fullscreenElement) {
-      return false;
-    }
-    const width = Math.max(80, Math.round(rect.width));
-    const height = Math.max(45, Math.round(rect.height));
-    const next = {
-      x: Math.round(rect.x),
-      y: Math.round(rect.y),
-      width,
-      height,
-    };
-    // The browser half asks on a timer, so an unchanged rectangle has to be a
-    // no-op: moving and resizing eight times a second is a window that jitters
-    // in the compositor.
-    const same =
-      docked &&
-      Math.abs(docked.x - next.x) < 1 &&
-      Math.abs(docked.y - next.y) < 1 &&
-      Math.abs(docked.width - next.width) < 1 &&
-      Math.abs(docked.height - next.height) < 1;
-    if (!docked) {
-      beforeDock = {
-        width: Math.round(window.outerWidth ?? 0),
-        height: Math.round(window.outerHeight ?? 0),
-        side: state === "tucked" ? spot : null,
-      };
-    }
-    docked = next;
-    if (same) {
-      // Still ask for the bare state: something else may have handed the
-      // controls back since the last tick, and a panel is never a window.
-      setBare(true);
-      return true;
-    }
-    try {
-      root.setAttribute(DOCK_ATTR, "true");
-    } catch (err) {
-      log("could not mark the player as docked", err);
-    }
-    stopPeek();
-    setBare(true);
-    try {
-      window.resizeTo(width, height);
-    } catch (err) {
-      log("could not size the docked player", err);
-    }
-    moveWindow(docked.x, docked.y);
-    return true;
-  };
-
-  /** Back to being a player: the remembered place, or wherever it was tucked. */
-  /** Leave the widget without touching the window's size or place. */
-  const leaveDock = () => {
-    if (!docked) {
-      return false;
-    }
-    docked = null;
-    try {
-      root.removeAttribute(DOCK_ATTR);
-    } catch (err) {
-      // A window on its way out needs nothing.
-    }
-    setBare(false);
-    updateOverlay();
-    return true;
-  };
-
-  /** Put the size picture-in-picture had back, and say what state it was in. */
-  const restoreStandard = () => {
-    const was = beforeDock;
-    beforeDock = null;
-    if (was?.width && was?.height) {
-      try {
-        window.resizeTo(was.width, was.height);
-      } catch (err) {
-        log("could not give the player its own size back", err);
-      }
-    }
-    return was;
-  };
-
-  const undock = () => {
-    if (!leaveDock()) {
-      return false;
-    }
-    const was = restoreStandard();
-    // The place it belongs is the one it was left at, on disk if this window
-    // never worked it out for itself. Restoring it before anything else matters:
-    // a tuck remembers the place the player came from, and that place is not the
-    // panel's seat in the sidebar.
-    if (!home) {
-      const remembered = readHome();
-      if (remembered) {
-        home = { x: remembered.x, y: remembered.y };
-        persistedHome = home;
-      }
-    }
-    const [x, y] = clampPoint(home);
-    moveWindow(x, y);
-    // Tucked before it went into the widget means tucked again now, at the same
-    // edge and at the player's own size.
-    if (was?.side) {
-      return tuck(was.side);
-    }
-    return true;
-  };
-
   let modTarget = null; // the last place the mod itself put the window
   const LOADED_AT = Date.now();
   const HOME_WINDOW = 3000; // ms after load that the remembered place is enforced
@@ -1341,7 +1190,7 @@
   };
 
   const trackPosition = () => {
-    if (!tracking || docked) {
+    if (!tracking) {
       return;
     }
     if (document.fullscreenElement || animating || revealing || Date.now() < settleUntil) {
@@ -2150,17 +1999,6 @@
     tuck,
     untuck,
     destroy,
-    dock,
-    undock,
-    isDocked,
-    dockedAt: () => (docked ? { ...docked } : null),
-    /** The picture's aspect, so the reserved gap can match it. */
-    aspect: () => {
-      const video = document.querySelector?.("video");
-      const w = video?.videoWidth ?? 0;
-      const h = video?.videoHeight ?? 0;
-      return w > 0 && h > 0 ? w / h : 16 / 9;
-    },
     isTucked: () => state === "tucked",
     stats: () => ({ state, spot, home, tracking, sliver, peeked, modTarget, loadedAt: LOADED_AT }),
     why: () => ({
