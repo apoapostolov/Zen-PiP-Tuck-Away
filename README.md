@@ -38,6 +38,10 @@ A tucked player is mostly off screen, so what remains is a 24px strip of video. 
 
 Across that strip sits a small badge with a chevron pointing back out, on a faint dark wash that darkens under the pointer. A press on it brings the player back, and a right press still rolls it to another edge. The strip keeps dragging as a window handle, so pulling it out by hand releases the tuck the way it always did.
 
+## Where the player opens
+
+The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, written when the player closes, and uses the place the player came from whenever it closes while tucked. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
+
 ## The tuck strip
 
 The player carries a strip that tucks it. It is not a small pill beside the controls: it is a band of the video itself, 20% of the width and 90% of the height along the side it will tuck into, and 90% by 20% across the top or the bottom. Inside it are an arrow pointing at that edge and the words Tuck Away, at 45% opacity until you hover, then solid, on a faint dark wash.

@@ -1060,6 +1060,60 @@
     }, CONTROLS_HOLD);
   };
 
+  /**
+   * Where the player was parked, kept in a preference.
+   *
+   * Firefox saves the window position when it closes, which is the tucked
+   * position whenever the player folds away while tucked, and that is mostly
+   * off screen: the next player then opens somewhere nobody put it. The place
+   * worth remembering is the one before the tuck, so this mod keeps its own.
+   */
+  const HOME_PREF = "pip-tuck-away.home";
+
+  const readHome = () => {
+    try {
+      const raw = Services.prefs.getStringPref(HOME_PREF, "");
+      const [x, y] = String(raw).split(",").map((part) => Number(part));
+      return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const writeHome = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    try {
+      Services.prefs.setStringPref(HOME_PREF, `${Math.round(x)},${Math.round(y)}`);
+    } catch (err) {
+      log("could not remember the player position", err);
+    }
+  };
+
+  /** Put the player back where it was last parked, inside the screen. */
+  const restoreHome = () => {
+    if (state !== "free" || document.fullscreenElement) {
+      return false;
+    }
+    const wanted = readHome();
+    const w = W();
+    const h = H();
+    if (!wanted || !w || !h) {
+      return false;
+    }
+    const b = screenBox();
+    // Same margin the rest of the mod uses, so a remembered place never lands
+    // flush against an edge where the resize border would swallow the drag.
+    const x = Math.round(clamp(wanted.x, b.left + MARGIN, b.right - w - MARGIN));
+    const y = Math.round(clamp(wanted.y, b.top + MARGIN, b.bottom - h - MARGIN));
+    if (Math.abs(window.screenX - x) <= 2 && Math.abs(window.screenY - y) <= 2) {
+      return true;
+    }
+    window.moveTo(x, y);
+    return true;
+  };
+
   /** Keep the arrow honest when the window is moved without a state change. */
   const refreshSide = () => {
     const overlay = document.getElementById(OVERLAY_ID);
@@ -1211,9 +1265,15 @@
     instantTuck(nearestSide());
   } else {
     // Firefox restores the last position just after the window opens, so check
-    // more than once that it is actually somewhere the user can see.
+    // more than once: first for a place this mod remembers, then that whatever
+    // is left is somewhere the user can see.
+    const placePlayer = () => {
+      if (!restoreHome()) {
+        rescuePosition();
+      }
+    };
     for (const delay of [0, 300, 800]) {
-      settleTimers.push(setTimeout(rescuePosition, delay));
+      settleTimers.push(setTimeout(placePlayer, delay));
     }
   }
 
@@ -1269,5 +1329,26 @@
   };
 
   window.__pipTuckAway = { toggle, tuck, untuck, destroy, isTucked: () => state === "tucked" };
-  window.addEventListener("unload", destroy, { once: true });
+  /**
+   * Last chance to note where the player belongs: while tucked that is the
+   * place it came from, because the window itself is mostly off screen.
+   */
+  window.addEventListener(
+    "unload",
+    () => {
+      try {
+        if (state === "tucked") {
+          if (home) {
+            writeHome(home.x, home.y);
+          }
+        } else {
+          writeHome(window.screenX, window.screenY);
+        }
+      } catch (err) {
+        // A window on its way out needs nothing.
+      }
+      destroy();
+    },
+    { once: true }
+  );
 })();
