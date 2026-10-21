@@ -1159,7 +1159,8 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   const settings = JSON.parse(fs.readFileSync("preferences.json", "utf8"));
   const widget = settings.find((e) => e.property === "pip-tuck-away.in-widget");
   check("the widget setting is there", !!widget, true);
-  check("and it says the frame rate is lower", /low framerate/.test(widget.label), true);
+  check("and it warns that the frame rate is slow and the feature is experimental",
+    /slow framerate, experimental/.test(widget.label), true);
   // No setting carries an inline hint: the label names the setting and nothing
   // more, and the low frame rate is the one thing a name has to warn about.
   const hints = settings.filter((e) => e.property && /\s\*[^*]/.test(e.label));

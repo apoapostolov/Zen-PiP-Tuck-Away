@@ -34,13 +34,13 @@ Hovering the strip slides the whole player back into view when the peek setting 
 | Tucked PiP Frosted Glass | on | The strip a tucked player leaves is frosted, so it reads as a handle. Off, it is plain video |
 | Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player out until the pointer leaves the video |
-| PiP uses the widget (low framerate) | on | In front, the video plays in the media widget and no player is opened. In the background, the standard picture-in-picture is used. The widget's picture is a copy, so it plays below the video's own frame rate |
+| Integrate in Sidebar Media Controls (slow framerate, experimental) | on | In front, the video plays in the media widget and no player is opened. In the background, the standard picture-in-picture is used. The widget's picture is a copy, so it plays below the video's own frame rate |
 | Pop the player out when leaving Zen | off | Leaving Zen asks the tab in front for a player, which the platform does not do on its own |
 | Auto tuck on PiP switch | off | A new player opens already tucked instead of appearing in its normal place first |
 
 ## The video in the media widget
 
-Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **PiP uses the widget** on, a video in another tab is shown in that widget, and no player window is opened at all.
+Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **Integrate in Sidebar Media Controls (slow framerate, experimental)** on, a video in another tab is shown in that widget, and no player window is opened at all.
 
 The widget shows a copy of the video, not a player. A content actor in the page copies the picture into a small canvas at the size the sidebar shows it, and the sidebar paints those pixels at the widget's width and the video's shape, in room made inside the toolbar itself. A copy is asked for when the video presents a new frame rather than on a clock, so nothing is copied twice and the rate follows the video. The video never moves: the page keeps playing it, the page keeps its sound, and nothing is loaded twice. A click on the picture plays or pauses, and the two small buttons that appear on hover do the same and open a real player if you would rather have one.
 

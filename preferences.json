@@ -102,7 +102,7 @@
   },
   {
     "property": "pip-tuck-away.in-widget",
-    "label": "PiP uses the widget (low framerate)",
+    "label": "Integrate in Sidebar Media Controls (slow framerate, experimental)",
     "type": "checkbox",
     "defaultValue": true
   },
