@@ -9,7 +9,10 @@
 # never shows a console window.
 
 [CmdletBinding()]
-param([switch]$Remove)
+param(
+    [switch]$Remove,
+    [string]$PythonPath
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -34,7 +37,10 @@ if (-not (Test-Path $helper)) {
     throw "Helper not found at $helper"
 }
 
-$pythonw = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
+$pythonw = $PythonPath
+if (-not $pythonw) {
+    $pythonw = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
+}
 if (-not $pythonw) {
     $python = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
     if ($python) {

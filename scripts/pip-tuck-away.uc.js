@@ -35,80 +35,6 @@
 
   const log = (message, err) => console.error(`[PiP Tuck Away] ${message}`, err ?? "");
 
-  // ---------- attach the player half
-
-  const decorate = (win) => {
-    try {
-      if (!win || win.__pipTuckAway) {
-        return;
-      }
-      if (win.location?.href !== PLAYER_URL) {
-        return;
-      }
-      Services.scriptloader.loadSubScript(PLAYER_SCRIPT, win);
-    } catch (err) {
-      log("could not set up the player window", err);
-    }
-  };
-
-  const existing = () => {
-    for (const win of Services.wm.getEnumerator("Toolkit:PictureInPicture")) {
-      decorate(win);
-    }
-  };
-
-  /**
-   * Attach before the player document has finished loading, polling briefly
-   * for the moment the window holds the player page. Used only when auto tuck
-   * is on, where the point is to beat the first painted frame.
-   */
-  const earlyLoad = (win) => {
-    const started = Date.now();
-    const tick = () => {
-      try {
-        if (!win || win.closed) {
-          return;
-        }
-        if (win.location?.href === PLAYER_URL && win.document?.documentElement) {
-          decorate(win);
-          return;
-        }
-      } catch (err) {
-        // A window mid-navigation can throw on location access; keep polling.
-      }
-      if (Date.now() - started > 1500) {
-        return;
-      }
-      setTimeout(tick, 16);
-    };
-    setTimeout(tick, 0);
-  };
-
-  const observer = {
-    observe(subject, topic) {
-      if (topic !== "domwindowopened" || !subject) {
-        return;
-      }
-      // Every new chrome window gets the chord too, so it works from a second
-      // browser window or from the player itself.
-      attachKeys(subject);
-      // The player fills in its controls on load, so wait for it.
-      subject.addEventListener("load", () => setTimeout(() => decorate(subject), 0), { once: true });
-      // With auto tuck on, the player should never be seen in its normal
-      // place, so get in as soon as the player document exists.
-      if (pref(AUTO_TUCK_PREF, false)) {
-        earlyLoad(subject);
-      }
-    },
-  };
-
-  Services.ww.registerNotification(observer);
-  existing();
-
-  // A player window created before this script ran is covered by existing();
-  // re-check once in case it was still loading.
-  setTimeout(existing, 1000);
-
   // ---------- keyboard toggle, on every Zen window
   //
   // The chord has to work from whatever window has focus: the main window, a
@@ -194,6 +120,92 @@
   };
 
   attachAllWindows();
+
+  // ---------- attach the player half
+
+  const decorate = (win) => {
+    try {
+      if (!win || win.__pipTuckAway) {
+        return;
+      }
+      // A window opened a moment ago still reports about:blank, so this is the
+      // first point where the chord can be attached reliably.
+      attachKeys(win);
+      if (win.location?.href !== PLAYER_URL) {
+        return;
+      }
+      Services.scriptloader.loadSubScript(PLAYER_SCRIPT, win);
+    } catch (err) {
+      log("could not set up the player window", err);
+    }
+  };
+
+  const existing = () => {
+    for (const win of Services.wm.getEnumerator("Toolkit:PictureInPicture")) {
+      decorate(win);
+    }
+  };
+
+  /**
+   * Attach before the player document has finished loading, polling briefly
+   * for the moment the window holds the player page. Used only when auto tuck
+   * is on, where the point is to beat the first painted frame.
+   */
+  const earlyLoad = (win) => {
+    const started = Date.now();
+    const tick = () => {
+      try {
+        if (!win || win.closed) {
+          return;
+        }
+        if (win.location?.href === PLAYER_URL && win.document?.documentElement) {
+          decorate(win);
+          return;
+        }
+      } catch (err) {
+        // A window mid-navigation can throw on location access; keep polling.
+      }
+      if (Date.now() - started > 1500) {
+        return;
+      }
+      setTimeout(tick, 16);
+    };
+    setTimeout(tick, 0);
+  };
+
+  const observer = {
+    observe(subject, topic) {
+      if (topic !== "domwindowopened" || !subject) {
+        return;
+      }
+      // Every new chrome window gets the chord too, so it works from a second
+      // browser window or from the player itself.
+      attachKeys(subject);
+      // The window is about:blank at this point, so the chord is attached once
+      // its real document has loaded.
+      subject.addEventListener(
+        "load",
+        () => {
+          attachKeys(subject);
+          setTimeout(() => decorate(subject), 0);
+        },
+        { once: true }
+      );
+      // With auto tuck on, the player should never be seen in its normal
+      // place, so get in as soon as the player document exists.
+      if (pref(AUTO_TUCK_PREF, false)) {
+        earlyLoad(subject);
+      }
+    },
+  };
+
+  Services.ww.registerNotification(observer);
+  existing();
+
+  // A player window created before this script ran is covered by existing();
+  // re-check once in case it was still loading.
+  setTimeout(existing, 1000);
+
 
   // ---------- global hotkey bridge
   //
