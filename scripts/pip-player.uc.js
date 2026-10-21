@@ -36,16 +36,46 @@
   const EDGE_BAND = 12; // px from the screen edge where :hover is not trustworthy
   const REVEAL_COOLDOWN = 250; // after a retract, no new reveal at once
   const BARE_ATTR = "pip-tuck-away-bare";
-  const BARE_STYLE_ID = "pip-tuck-away-bare-style";
-  const BARE_CSS = [
-    ":root[pip-tuck-away-bare] .control-item{opacity:0 !important;transition:none !important}",
-    // Firefox hides the cursor whenever the controls are hidden. In a bare
-    // reveal that leaves a pointer you cannot see, so keep it.
-    ":root[pip-tuck-away-bare] #controls{cursor:default !important}",
-  ].join("");
   const DRIFT_PX = 3; // movement by anyone else that counts as a drag
 
   const root = document.documentElement;
+
+  // ---------- the sheet
+  //
+  // The player document is served with `Content-Security-Policy:
+  // default-src chrome:`, so an injected <style> element is dropped without a
+  // word and every rule here would be dead. A real file loaded as an author
+  // sheet is not subject to the page's rules at all, and a chrome:// link is
+  // the fallback.
+  const XHTML_NS = "http://www.w3.org/1999/xhtml";
+  const SHEET_URL = "chrome://sine/content/pip-tuck-away/styles/player.css";
+  let sheetLoaded = false;
+
+  const loadSheet = () => {
+    if (sheetLoaded) {
+      return;
+    }
+    sheetLoaded = true;
+    try {
+      const utils = window.windowUtils;
+      if (utils?.loadSheetUsingURIString) {
+        utils.loadSheetUsingURIString(SHEET_URL, utils.AUTHOR_SHEET);
+        return;
+      }
+    } catch (err) {
+      log("could not load the player styles as a sheet", err);
+    }
+    try {
+      const link = document.createElementNS(XHTML_NS, "link");
+      link.rel = "stylesheet";
+      link.href = SHEET_URL;
+      (document.head ?? root).appendChild(link);
+    } catch (err) {
+      log("could not link the player styles", err);
+    }
+  };
+
+  loadSheet();
 
   /** "free" when the whole window is on screen, "tucked" when it is at an edge. */
   let state = "free";
@@ -472,16 +502,7 @@
       }
       return;
     }
-    if (!document.getElementById(BARE_STYLE_ID)) {
-      try {
-        const style = document.createElementNS("http://www.w3.org/1999/xhtml", "style");
-        style.id = BARE_STYLE_ID;
-        style.textContent = BARE_CSS;
-        document.documentElement.appendChild(style);
-      } catch (err) {
-        log("could not style the bare reveal", err);
-      }
-    }
+    loadSheet();
     root.setAttribute(BARE_ATTR, "");
   };
 
@@ -719,25 +740,8 @@
    * a spot picked there is honoured through the same path, folded onto the
    * nearest side this mod supports.
    */
-  const ZIA_STYLE_ID = "pip-tuck-away-zia";
 
-  const showZiaButton = () => {
-    if (document.getElementById(ZIA_STYLE_ID)) {
-      return;
-    }
-    try {
-      const style = document.createElementNS("http://www.w3.org/1999/xhtml", "style");
-      style.id = ZIA_STYLE_ID;
-      // Zia hides the button with display:none and only shows it while its own
-      // tuck is on. Both of its rules are matched here, because a bare
-      // !important would lose to the :root[zia-no-tuck] one.
-      style.textContent =
-        "#controls .zia-pip-tuck-button,:root[zia-no-tuck] #controls .zia-pip-tuck-button{display:inline-flex !important;}";
-      document.documentElement.appendChild(style);
-    } catch (err) {
-      log("could not show Zia's tuck button", err);
-    }
-  };
+  const showZiaButton = () => loadSheet();
 
   const ziaButton = () => {
     try {
@@ -858,12 +862,10 @@
   // #controls, so Firefox's own buttons and the control bar paint above it and
   // keep their clicks. Only the uncovered part of the strip answers.
 
-  const XHTML_NS = "http://www.w3.org/1999/xhtml";
   const PREF_OVERLAY = "pip-tuck-away.overlay";
   const PREF_DIRECTION = "pip-tuck-away.direction";
   const OVERLAY_ID = "pip-tuck-away-overlay";
   const PICKER_ID = "pip-tuck-away-picker";
-  const OVERLAY_STYLE_ID = "pip-tuck-away-overlay-style";
   const SIDES = ["right", "top", "left", "bottom"];
   const PICKER_ORDER = ["top", "left", "smart", "right", "bottom"];
   const DIRECTION_LABELS = {
@@ -874,31 +876,6 @@
     bottom: "Bottom",
   };
 
-  const OVERLAY_CSS = [
-    "#pip-tuck-away-overlay{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3em;border:0;padding:0;margin:0;background:transparent;color:#fff;font:600 11px/1.15 system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.03em;cursor:pointer;opacity:.45;z-index:0;-moz-window-dragging:no-drag;text-shadow:0 1px 3px rgba(0,0,0,.9);transition:opacity 120ms linear,background-color 120ms linear}",
-    "#pip-tuck-away-overlay[hidden]{display:none}",
-    "#pip-tuck-away-overlay:hover,#pip-tuck-away-overlay:focus-visible{opacity:1;background:rgba(0,0,0,.3);outline:none}",
-    "#pip-tuck-away-overlay[data-side=left]{left:0;top:5%;width:20%;height:90%}",
-    "#pip-tuck-away-overlay[data-side=right]{right:0;top:5%;width:20%;height:90%}",
-    "#pip-tuck-away-overlay[data-side=top]{top:0;left:5%;width:90%;height:20%}",
-    "#pip-tuck-away-overlay[data-side=bottom]{bottom:0;left:5%;width:90%;height:20%}",
-    "#pip-tuck-away-overlay .pip-tuck-away-arrow{width:0;height:0;border:7px solid transparent}",
-    "#pip-tuck-away-overlay[data-side=left] .pip-tuck-away-arrow{border-right-color:#fff}",
-    "#pip-tuck-away-overlay[data-side=right] .pip-tuck-away-arrow{border-left-color:#fff}",
-    "#pip-tuck-away-overlay[data-side=top] .pip-tuck-away-arrow{border-bottom-color:#fff}",
-    "#pip-tuck-away-overlay[data-side=bottom] .pip-tuck-away-arrow{border-top-color:#fff}",
-    "#pip-tuck-away-picker{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;display:grid;grid-template-columns:repeat(3,auto);gap:4px;padding:8px;border-radius:10px;background:rgba(24,24,27,.94);color:#fff;font:600 11px/1 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.5);-moz-window-dragging:no-drag}",
-    "#pip-tuck-away-picker[hidden]{display:none}",
-    "#pip-tuck-away-picker .pip-tuck-away-picker-title{grid-column:1/-1;font-weight:600;opacity:.7;text-align:center;padding:2px 0 5px}",
-    "#pip-tuck-away-picker button{appearance:none;border:0;background:rgba(255,255,255,.08);color:inherit;font:inherit;padding:6px 9px;border-radius:6px;cursor:pointer}",
-    "#pip-tuck-away-picker button:hover{background:rgba(255,255,255,.22)}",
-    "#pip-tuck-away-picker button[aria-pressed=true]{background:rgba(255,255,255,.32)}",
-    "#pip-tuck-away-picker button[data-side=top]{grid-column:2;grid-row:2}",
-    "#pip-tuck-away-picker button[data-side=left]{grid-column:1;grid-row:3}",
-    "#pip-tuck-away-picker button[data-side=smart]{grid-column:2;grid-row:3}",
-    "#pip-tuck-away-picker button[data-side=right]{grid-column:3;grid-row:3}",
-    "#pip-tuck-away-picker button[data-side=bottom]{grid-column:2;grid-row:4}",
-  ].join("");
 
   const directionPref = () => {
     try {
@@ -915,19 +892,7 @@
     return value === "smart" ? nearestSide() : value;
   };
 
-  const ensureOverlayStyle = () => {
-    if (document.getElementById(OVERLAY_STYLE_ID)) {
-      return;
-    }
-    try {
-      const style = document.createElementNS(XHTML_NS, "style");
-      style.id = OVERLAY_STYLE_ID;
-      style.textContent = OVERLAY_CSS;
-      document.documentElement.appendChild(style);
-    } catch (err) {
-      log("could not style the tuck overlay", err);
-    }
-  };
+  const ensureOverlayStyle = () => loadSheet();
 
   const pickerElement = () => document.getElementById(PICKER_ID);
 
@@ -1214,48 +1179,8 @@
   const CONTROLS_ATTR = "pip-controls";
   const CONTROLS_HOLD = 2600; // ms the controls stay after a press asks for them
   const BADGE_ID = "pip-tuck-away-badge";
-  const TUCK_STYLE_ID = "pip-tuck-away-tuck-style";
-  const TUCK_CSS = [
-    "#pip-tuck-away-badge{position:fixed;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(24,24,27,.32);cursor:pointer;-moz-window-dragging:drag;transition:background-color 160ms linear}",
-    "#pip-tuck-away-badge:hover{background:rgba(24,24,27,.55)}",
-    "#pip-tuck-away-badge::after{content:'';width:7px;height:7px;border-right:2px solid rgba(255,255,255,.92);border-bottom:2px solid rgba(255,255,255,.92);transition:transform 200ms ease}",
-    ":root[pip-tucked] #pip-tuck-away-badge{display:flex}",
-    // The peek owns the window while it is out, and the badge has nothing to
-    // point at then.
-    ":root[pip-peeking] #pip-tuck-away-badge{display:none}",
-    ":root[pip-tucked=left] #pip-tuck-away-badge{right:0;top:0;bottom:0;width:24px}",
-    ":root[pip-tucked=left] #pip-tuck-away-badge::after{transform:rotate(135deg)}",
-    ":root[pip-tucked=right] #pip-tuck-away-badge{left:0;top:0;bottom:0;width:24px}",
-    ":root[pip-tucked=right] #pip-tuck-away-badge::after{transform:rotate(-45deg)}",
-    ":root[pip-tucked=top] #pip-tuck-away-badge{left:0;right:0;bottom:0;height:24px}",
-    ":root[pip-tucked=top] #pip-tuck-away-badge::after{transform:rotate(-135deg)}",
-    ":root[pip-tucked=bottom] #pip-tuck-away-badge{left:0;right:0;top:0;height:24px}",
-    ":root[pip-tucked=bottom] #pip-tuck-away-badge::after{transform:rotate(45deg)}",
-    // Firefox's controls belong to the part of the player nobody can see.
-    ":root[pip-tucked]:not([pip-peeking]) #controls{visibility:hidden}",
-    // A filter on the holder works on the video itself, where a backdrop blur
-    // cannot see it, and it clears as the window slides back out.
-    ":root[pip-tucked] .player-holder{transition:filter 280ms ease}",
-    ":root[pip-tucked]:not([pip-peeking]) .player-holder{filter:blur(16px) brightness(.85)}",
-    // A peek is a look at the video, so nothing may tint it, whatever state the
-    // attributes happen to be in.
-    ":root[pip-peeking] .player-holder{filter:none !important}",
-    ":root[pip-controls] .control-item{opacity:1 !important}",
-  ].join("");
 
-  const ensureTuckLook = () => {
-    if (document.getElementById(TUCK_STYLE_ID)) {
-      return;
-    }
-    try {
-      const style = document.createElementNS(XHTML_NS, "style");
-      style.id = TUCK_STYLE_ID;
-      style.textContent = TUCK_CSS;
-      document.documentElement.appendChild(style);
-    } catch (err) {
-      log("could not style the tucked strip", err);
-    }
-  };
+  const ensureTuckLook = () => loadSheet();
 
   const buildBadge = () => {
     const badge = document.createElementNS(XHTML_NS, "div");
@@ -1340,18 +1265,14 @@
     root.removeAttribute("pip-peeking");
     try {
       document.removeEventListener("click", onZiaClick, true);
-      document.getElementById(ZIA_STYLE_ID)?.remove();
       if (controlsTimer) {
         clearTimeout(controlsTimer);
         controlsTimer = null;
       }
       document.getElementById(BADGE_ID)?.remove();
-      document.getElementById(TUCK_STYLE_ID)?.remove();
-      document.getElementById(BARE_STYLE_ID)?.remove();
       root.removeAttribute(BARE_ATTR);
       document.getElementById(OVERLAY_ID)?.remove();
       document.getElementById(PICKER_ID)?.remove();
-      document.getElementById(OVERLAY_STYLE_ID)?.remove();
       document.removeEventListener("mousedown", onDocumentMouseDown, true);
       Services.prefs.removeObserver(PREF_OVERLAY, onOverlayPref);
       Services.prefs.removeObserver(PREF_DIRECTION, onOverlayPref);

@@ -107,14 +107,17 @@ Outside Zen it does nothing. Windows gives a chord to another application only t
 
 ## How it is put together
 
-Two scripts, no stylesheet, no helper process.
+Two scripts, one stylesheet, no helper process.
 
 | File | Runs in | Job |
 | --- | --- | --- |
 | `scripts/pip-tuck-away.uc.js` | any browser window | Watches for player windows, loads the player half into each one, owns the keyboard chord on every window, keeps playback inline while Zen has focus |
 | `scripts/pip-player.uc.js` | the picture-in-picture player | Right-click, hover peek, the move maths, and the exposed toggle API |
+| `styles/player.css` | the picture-in-picture player | The strip, the picker, the frosted tucked strip with its chevron, and the bare reveal |
 
 Sine declares only the first script, so it loads exactly once into `browser.xhtml`. The second is loaded on demand through `Services.scriptloader.loadSubScript`, using the profile's `content sine ../sine-mods/` manifest entry, which is why the mod's files are reachable at `chrome://sine/content/pip-tuck-away/`.
+
+The styles are a real file for a reason. The player document is served with `Content-Security-Policy: default-src chrome:`, which blocks inline styles outright, so an injected `<style>` element is dropped without a word and every rule in it is dead. The player half loads the sheet through `window.windowUtils.loadSheetUsingURIString` as an author sheet, which is not subject to the page's rules at all, with a `chrome://` `<link>` as the fallback. State is carried entirely by attributes on the root element, so the script never has to touch a style rule to redraw.
 
 ## Credits
 
