@@ -19,6 +19,8 @@
   const PREF_SHORTCUT = "pip-tuck-away.shortcut";
   const PREF_HOVER_PEEK = "pip-tuck-away.hover-peek";
   const PREF_AUTO_TUCK = "pip-tuck-away.auto-tuck";
+  /** Zia's own tuck switch. This mod replaces that feature, so it must be off. */
+  const ZIA_TUCK_PREF = "zia.pip.tuck";
 
   const SLIVER = 24; // px of window left on screen while tucked
   const MARGIN = 16; // px kept from the screen edge when the window is out
@@ -47,6 +49,27 @@
       return Services.prefs.getBoolPref(name);
     } catch (err) {
       return fallback;
+    }
+  };
+
+  /** true, false, or undefined when the preference has never been set. */
+  const prefState = (name) => {
+    try {
+      if (Services.prefs.getPrefType(name) === 0) {
+        return undefined;
+      }
+      return Services.prefs.getBoolPref(name);
+    } catch (err) {
+      return undefined;
+    }
+  };
+
+  /** True when the node belongs to Zia's picture-in-picture controls. */
+  const inZiaUI = (node) => {
+    try {
+      return !!node?.closest?.("[class*='zia-pip-']");
+    } catch (err) {
+      return false;
     }
   };
 
@@ -267,6 +290,11 @@
     if (!pref(PREF_RIGHT_CLICK, true)) {
       return;
     }
+    // Zia already uses right-click on its own tuck button to open its picker.
+    // Leave anything inside its controls to Zia.
+    if (inZiaUI(event.target)) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     toggle();
@@ -328,6 +356,16 @@
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("resize", onResize);
   Services.prefs.addObserver(PREF_HOVER_PEEK, onPrefChange);
+
+  // Zia can tuck picture-in-picture as well. Two mods moving the same window
+  // turn every tuck into a tug of war, so say it once rather than failing
+  // quietly. Zia's own controls keep their right-click picker either way.
+  if (prefState(ZIA_TUCK_PREF) === true) {
+    console.warn(
+      "[PiP Tuck Away] Zia's own tuck is still on (zia.pip.tuck = true). " +
+        "Two mods are moving the player window. Set zia.pip.tuck to false so this mod owns it."
+    );
+  }
 
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {

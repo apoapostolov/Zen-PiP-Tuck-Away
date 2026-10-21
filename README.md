@@ -39,6 +39,15 @@ Restart Zen afterwards, because script mods load at startup.
 
 One requirement applies to every Sine mod installed from a repository rather than the store: JavaScript must be allowed. Check that `sine.allow-unsafe-js` is `true` in `about:config`, otherwise the mod installs, appears enabled, and does nothing at all. Mods that ship scripts run with full browser privileges, so read the two files in `scripts/` before you trust them. They are short and they only move a window.
 
+## Using it with Zia
+
+Zia tucks picture-in-picture as well, and two mods moving the same window turn every tuck into a tug of war. This mod is meant to replace that part of Zia, so make Zia hand the job over:
+
+- Set `zia.pip.tuck` to `false` in `about:config`. Zia's tuck button, its right-click picker and its edge code go dormant, while the rest of Zia's player styling keeps working exactly as before.
+- The mod warns once in the Browser Console if it finds Zia's tuck still enabled, naming the preference to change.
+- Right-clicks inside Zia's own player controls are passed straight to Zia, so turning Zia's tuck back on does not break its picker.
+- The two mods share no state: this one marks the window with `pip-tucked` and `pip-peeking`, never writes Zia's preferences, and Zia keeps its own `zia-*` attributes.
+
 ## Ctrl+Shift+T is a busy shortcut
 
 Firefox uses Ctrl+Shift+T to reopen the last closed tab. While a picture-in-picture player is open, this mod takes the chord, because that is the point of a toggle. When no player is open the chord is passed straight through and undo-close-tab works as usual.

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Coexistence with Zia, which tucks picture-in-picture too. The mod now warns once in the Browser Console when `zia.pip.tuck` is still enabled, naming the preference that hands the feature over.
+- Right-clicks inside Zia's own player controls are passed through to Zia instead of toggling this mod's tuck, so Zia's edge picker keeps working.
+- Documented the takeover: no shared attributes and no writes to Zia's preferences.
+
 ## 0.2.0
 
 - New setting: Auto tuck on PiP switch. When on, a new player window is tucked before it is shown, so a video goes straight to the strip instead of appearing in its usual place. Off by default.
