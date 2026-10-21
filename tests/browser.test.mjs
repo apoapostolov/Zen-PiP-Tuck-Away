@@ -1177,6 +1177,19 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("a click on the picture is a play/pause", (t.mirror().firstElementChild.fire("click", {}) ?? true) && mirrorActor.sent.some((m) => m.name === "PipMirror:Control" && m.data.action === "toggle"), true);
 }
 
+// 30h. the panel is measured with the widget, not once
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 21 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(21, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(21, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  check("placed at the widget's width", t.mirror().style.width, "288px");
+  t.dockCardEl.rect = { left: 20, top: 400, width: 200, height: 160 };
+  await t.tick();
+  check("and it follows the widget when the widget changes", t.mirror().style.width, "188px");
+}
+
 // 30e2. a video that never produces a picture becomes a player window
 {
   const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });

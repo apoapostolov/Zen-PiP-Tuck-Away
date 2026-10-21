@@ -18,7 +18,7 @@
     "zen"
   ],
   "style": {
-    "chrome": "styles/chrome.css"
+    "chrome": "chrome.css"
   },
   "preferences": "preferences.json",
   "scripts": {

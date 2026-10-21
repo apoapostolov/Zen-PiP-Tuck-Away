@@ -721,6 +721,7 @@
   let mirrorState = { paused: false, time: 0, duration: 0 };
   let heldRequest = null; // a request no player was opened for, kept for the fallback
   let mirrorPainted = false; // a real picture has arrived, so the panel may be shown
+  let panelWatch = 0; // the panel is measured with the widget, not once
   let mirrorPatience = 0; // the timer that gives up when no picture comes
   let lastMirrored = null; // the tab the widget was showing when the browser lost focus
   const forcedPip = new WeakSet();
@@ -878,6 +879,32 @@
     box.style.left = `${Math.round(cardRect.left - barRect.left + DOCK_INSET)}px`;
   };
 
+  /**
+   * The panel is measured again while it is on screen.
+   *
+   * The first picture can arrive before the widget has a card to measure, and a
+   * panel placed once at that moment keeps whatever size it had when nothing
+   * could be measured. Re-measuring is a rectangle read on a slow timer, and it
+   * is what keeps the panel the width of the widget as the widget changes.
+   */
+  const startPanelWatch = () => {
+    if (panelWatch) {
+      return;
+    }
+    panelWatch = setInterval(() => {
+      if (mirrorBox()) {
+        placeMirror();
+      }
+    }, 400);
+  };
+
+  const stopPanelWatch = () => {
+    if (panelWatch) {
+      clearInterval(panelWatch);
+      panelWatch = 0;
+    }
+  };
+
   const drawMirrorFrame = (frame) => {
     const box = mirrorBox();
     const canvas = box?.firstElementChild;
@@ -892,6 +919,7 @@
       }
       box.removeAttribute("waiting");
       placeMirror();
+      startPanelWatch();
     }
     if (canvas.width !== frame.width || canvas.height !== frame.height) {
       canvas.width = frame.width;
@@ -964,6 +992,7 @@
     }
     const box = buildMirrorBox();
     bar.append(box);
+    startPanelWatch();
     mirrorActor = actor;
     mirrorBrowser = browser;
     mirrorContext = null;
@@ -1007,6 +1036,7 @@
     mirrorActor = null;
     mirrorBrowser = null;
     mirrorContext = null;
+    stopPanelWatch();
     const box = mirrorBox();
     if (box) {
       box.remove();
@@ -1493,6 +1523,7 @@
 
   const unload = () => {
     stopDockLoop();
+    stopPanelWatch();
     teardownMirror();
     releaseReserve();
     if (cardWatchTimer) {

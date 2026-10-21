@@ -97,6 +97,7 @@ This mod needs nothing else installed. If [Zia](https://github.com/z1n-k/zia) is
 | `scripts/pip-tuck-away.uc.js` | any browser window | Watches for player windows, loads the player half into each one, owns the chord on every window, and docks the player into the media card |
 | `scripts/pip-player.uc.js` | the picture-in-picture player | The move maths, the tuck button, the direction map, the hover peek, the memory, and the toggle API |
 | `styles/player.css` | the picture-in-picture player | The strip, the picker, the button, the frosted tucked strip and the bare reveal |
+| `chrome.css` | the browser window | The panel the widget shows a video in |
 
 The player page carries a Content-Security-Policy that blocks inline styles, so the sheet is loaded as a real file. State lives in attributes on the root element.
 
