@@ -22,10 +22,21 @@ The mod adds one section to its settings dialog in Sine, with four switches.
 | Toggle with Ctrl+Shift+T | on | The keyboard toggle, from the browser window or the player |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
 | Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
+| Integrate PiP in the player widget | off | Switching tabs keeps the video in Zen's sidebar card; the window appears only when you leave Zen |
 
 The peek is off by default on purpose. Once it is on, the strip stops being a static sliver and starts responding to the pointer, which some people find distracting while watching something in the corner.
 
 Auto tuck is off by default because it changes where the player starts life. Turn it on and the very first thing you see when a video goes picture-in-picture is the strip at the edge, chosen as the edge nearest where the player would normally have appeared. Firefox restores a player window's last position and size just after it opens, so the mod re-applies the tucked position a few times across the first third of a second to win that race. A single frame at the old spot can still slip through on a slow start, which is the price of doing this from a script rather than inside the browser's own window code.
+
+## Player widget integration
+
+Zen already has a media card in the sidebar. It shows whatever is playing, with play, seek, mute and its own PiP button, and it hides itself the moment that video is in a PiP window. Firefox also opens a PiP window by itself when a playing tab is hidden by a tab switch, which is what the Auto-PiP setting does. Together those mean switching tabs inside Zen replaces the card with a floating window, which is backwards.
+
+With **Integrate PiP in the player widget** on, the automatic window from a tab switch is not created while Zen has focus. The video keeps playing in its tab and the sidebar card stays put with its controls. Switch away from Zen and the player pops out then, because that is when a floating window is worth having. Come back and the window closes, so the card takes over again.
+
+Two rules keep it predictable. A request you make yourself, from the card's PiP button or the video's own toggle, is never intercepted, so asking for a window always gets you one. And interception only happens while Zen has focus, so a player requested from a background window still opens normally.
+
+The mechanism is a wrapper around `PictureInPicture.handlePictureInPictureRequest`, the single place Firefox creates a player from. It tells the automatic path apart by checking whether the requesting browser's docshell is inactive, which is Mozilla's own marker: a docshell is only inactive when the request came from the auto toggle for a hidden tab.
 
 ## Install
 

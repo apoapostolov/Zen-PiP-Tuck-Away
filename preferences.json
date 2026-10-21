@@ -33,6 +33,28 @@
     "defaultValue": false
   },
   {
+    "type": "text",
+    "label": "While a player window is open, Ctrl+Shift+T belongs to this mod, so it no longer reopens a closed tab. Turn the shortcut off to give it back.",
+    "size": "11px",
+    "margin": "8px 0 0 0"
+  },
+  {
+    "type": "separator",
+    "label": "Opening the player"
+  },
+  {
+    "property": "pip-tuck-away.inline-in-zen",
+    "label": "Integrate PiP in the player widget",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "type": "text",
+    "label": "While Zen has focus, the automatic PiP from switching tabs keeps the video in the sidebar player card. The window appears only when you leave Zen, and closes again when you come back. Asking for PiP yourself, from the card or the video, still opens the window.",
+    "size": "11px",
+    "margin": "4px 0 0 0"
+  },
+  {
     "property": "pip-tuck-away.auto-tuck",
     "label": "Auto tuck on PiP switch",
     "type": "checkbox",
@@ -43,11 +65,5 @@
     "label": "Auto tuck opens the player already tucked, instead of showing it in its normal place first. The edge is the one nearest the player's usual spot.",
     "size": "11px",
     "margin": "4px 0 0 0"
-  },
-  {
-    "type": "text",
-    "label": "While a player window is open, Ctrl+Shift+T belongs to this mod, so it no longer reopens a closed tab. Turn the shortcut off to give it back.",
-    "size": "11px",
-    "margin": "10px 0 0 0"
   }
 ]

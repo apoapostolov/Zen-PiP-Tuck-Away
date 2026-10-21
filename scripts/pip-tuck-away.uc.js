@@ -19,6 +19,8 @@
   const PLAYER_SCRIPT = "chrome://sine/content/pip-tuck-away/scripts/pip-player.uc.js";
   const SHORTCUT_PREF = "pip-tuck-away.shortcut";
   const AUTO_TUCK_PREF = "pip-tuck-away.auto-tuck";
+  const INLINE_PREF = "pip-tuck-away.inline-in-zen";
+  const PIP_MODULE = "moz-src:///toolkit/components/pictureinpicture/PictureInPicture.sys.mjs";
 
   const pref = (name, fallback) => {
     try {
@@ -146,6 +148,119 @@
 
   window.addEventListener("keydown", onKeyDown, true);
 
+  // ---------- keep playback inside Zen until the browser is left
+  //
+  // Firefox opens the player window in two ways: the user asks for it, or its
+  // own auto toggle fires when a playing tab is hidden by a tab switch. Only
+  // the second one is redirected, and Zen's media card in the sidebar already
+  // shows the same video with its own controls while the tab is in the
+  // background. The card hides itself whenever the player is in PiP mode, so
+  // staying inline is what keeps it visible.
+
+  let suppressed = null; // the request kept in the page
+  let floatedWindow = null; // the player opened because Zen lost focus
+  let trueOriginal = null; // the unwrapped request handler
+
+  const pipApi = () => {
+    try {
+      return ChromeUtils.importESModule(PIP_MODULE).PictureInPicture;
+    } catch (err) {
+      log("could not reach the picture-in-picture module", err);
+      return null;
+    }
+  };
+
+  /**
+   * Mozilla's own marker for the automatic path: the docshell is inactive only
+   * when the player was requested by the auto toggle for a hidden tab.
+   */
+  const requestedByTabSwitch = (wgp) => {
+    try {
+      const browser = wgp?.browsingContext?.top?.embedderElement;
+      return !!browser && !browser.docShellIsActive;
+    } catch (err) {
+      return false;
+    }
+  };
+
+  /** Judge the window the request came from, so a second Zen window is not misread. */
+  const requestingWindowFocused = (wgp) => {
+    try {
+      const parentWin = wgp?.browsingContext?.top?.embedderElement?.documentGlobal;
+      if (parentWin?.document?.hasFocus) {
+        return parentWin.document.hasFocus();
+      }
+    } catch (err) {
+      // fall through to this window
+    }
+    return window.document.hasFocus();
+  };
+
+  const installPipHook = () => {
+    const api = pipApi();
+    if (!api || api.handlePictureInPictureRequest.__pipTuckAway) {
+      return;
+    }
+    trueOriginal = api.handlePictureInPictureRequest.bind(api);
+    const wrapped = async (wgp, videoData) => {
+      const keepInline =
+        pref(INLINE_PREF, false) && requestedByTabSwitch(wgp) && requestingWindowFocused(wgp);
+      if (keepInline) {
+        suppressed = { wgp, videoData };
+        return undefined;
+      }
+      return trueOriginal(wgp, videoData);
+    };
+    wrapped.__pipTuckAway = true;
+    api.handlePictureInPictureRequest = wrapped;
+  };
+
+  /** Zen lost focus: hand the suppressed video to the real player window. */
+  const floatSuppressed = () => {
+    if (!suppressed || !trueOriginal) {
+      return;
+    }
+    const { wgp, videoData } = suppressed;
+    suppressed = null;
+    Promise.resolve(trueOriginal(wgp, videoData))
+      .then(() => {
+        const win = Services.wm.getMostRecentWindow("Toolkit:PictureInPicture");
+        if (!win) {
+          return;
+        }
+        floatedWindow = win;
+        win.addEventListener(
+          "unload",
+          () => {
+            if (floatedWindow === win) {
+              floatedWindow = null;
+            }
+          },
+          { once: true }
+        );
+      })
+      .catch((err) => log("could not float the player after leaving Zen", err));
+  };
+
+  /** Zen has focus again: close the player we opened, leaving the card in charge. */
+  const foldBack = () => {
+    if (!floatedWindow || floatedWindow.closed) {
+      floatedWindow = null;
+      return;
+    }
+    const api = pipApi();
+    try {
+      api?.closePipWindow?.(floatedWindow);
+    } catch (err) {
+      log("could not close the floated player", err);
+    }
+    floatedWindow = null;
+  };
+
+  installPipHook();
+  window.addEventListener("deactivate", floatSuppressed);
+  window.addEventListener("activate", foldBack);
+
   // ---------- teardown (Sine calls this when the mod is disabled or updated)
 
   const unload = () => {
@@ -155,6 +270,12 @@
       log("could not unregister the window observer", err);
     }
     window.removeEventListener("keydown", onKeyDown, true);
+    window.removeEventListener("deactivate", floatSuppressed);
+    window.removeEventListener("activate", foldBack);
+    const api = pipApi();
+    if (api && trueOriginal && api.handlePictureInPictureRequest.__pipTuckAway) {
+      api.handlePictureInPictureRequest = trueOriginal;
+    }
     for (const win of Services.wm.getEnumerator("Toolkit:PictureInPicture")) {
       win.__pipTuckAway?.destroy?.();
     }
