@@ -220,6 +220,7 @@
   // staying inline is what keeps it visible.
 
   let suppressed = null; // the request kept in the page
+  let lastRequest = null; // the request we floated last, to float it again
   let floatedWindow = null; // the player opened because Zen lost focus
   let trueOriginal = null; // the unwrapped request handler
 
@@ -239,7 +240,17 @@
   const requestedByTabSwitch = (wgp) => {
     try {
       const browser = wgp?.browsingContext?.top?.embedderElement;
-      return !!browser && !browser.docShellIsActive;
+      if (!browser) {
+        return false;
+      }
+      if (!browser.docShellIsActive) {
+        return true;
+      }
+      // Once a player has been floated the platform keeps the docshell active
+      // on purpose, so the marker above stops meaning anything. A request from
+      // a tab that is not the selected one is still the automatic path.
+      const tabbrowser = browser.getTabBrowser?.();
+      return !!tabbrowser && tabbrowser.selectedBrowser !== browser;
     } catch (err) {
       return false;
     }
@@ -269,6 +280,7 @@
         pref(INLINE_PREF, false) && requestedByTabSwitch(wgp) && requestingWindowFocused(wgp);
       if (keepInline) {
         suppressed = { wgp, videoData };
+        lastRequest = suppressed;
         return undefined;
       }
       return trueOriginal(wgp, videoData);
@@ -279,7 +291,7 @@
 
   /** Zen lost focus: hand the suppressed video to the real player window. */
   const floatSuppressed = () => {
-    if (!suppressed || !trueOriginal) {
+    if (!suppressed || !trueOriginal || (floatedWindow && !floatedWindow.closed)) {
       return;
     }
     const { wgp, videoData } = suppressed;
@@ -304,19 +316,61 @@
       .catch((err) => log("could not float the player after leaving Zen", err));
   };
 
+  /**
+   * Floating a player makes the platform mark the browser as auto-pipped and
+   * force its docshell active, so the tab keeps running while it is hidden.
+   * Both marks are cleared by the platform's own foreground close, and not by
+   * a bare window close: leaving them behind means the tab never reports
+   * itself hidden again and no player is ever requested a second time.
+   */
+  const releaseDocShell = (api, browser) => {
+    if (!browser) {
+      return;
+    }
+    try {
+      const tabbrowser = browser.getTabBrowser?.();
+      if (tabbrowser && !tabbrowser.shouldActivateDocShell?.(browser)) {
+        browser.docShellIsActive = false;
+      }
+    } catch (err) {
+      // A closed or discarded tab needs nothing.
+    }
+  };
+
   /** Zen has focus again: close the player we opened, leaving the card in charge. */
   const foldBack = () => {
     if (!floatedWindow || floatedWindow.closed) {
       floatedWindow = null;
       return;
     }
+    const win = floatedWindow;
     const api = pipApi();
+    const browser = api?.weakWinToBrowser?.get?.(win) ?? null;
+    const actorRef = browser ? api?.weakAutoPipBrowserToParent?.get?.(browser) ?? null : null;
+    floatedWindow = null;
     try {
-      api?.closePipWindow?.(floatedWindow);
+      if (actorRef && api.closeSinglePipWindow) {
+        // The same path the platform takes when the auto-pipped tab comes back
+        // to the foreground: it clears the browser's PiP bookkeeping with it.
+        Promise.resolve(api.closeSinglePipWindow({ reason: "Foregrounded", actorRef }))
+          .catch(() => api.closePipWindow?.(win))
+          .finally(() => releaseDocShell(api, browser));
+      } else {
+        Promise.resolve(api?.closePipWindow?.(win))
+          .catch((err) => log("could not close the floated player", err))
+          .finally(() => releaseDocShell(api, browser));
+      }
     } catch (err) {
       log("could not close the floated player", err);
     }
-    floatedWindow = null;
+    // The video is still the same video, so a second departure can float it
+    // again without waiting for another tab switch to ask for it.
+    const request = lastRequest;
+    if (request?.wgp?.browsingContext) {
+      suppressed = request;
+    } else {
+      lastRequest = null;
+    }
   };
 
   installPipHook();
