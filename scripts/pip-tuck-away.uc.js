@@ -390,53 +390,80 @@
     requestFromSelectedTab();
   };
 
-  /** Zen has focus again: close the player we opened, leaving the card in charge. */
-  const foldBack = () => {
-    if (!floatedWindow || floatedWindow.closed) {
-      floatedWindow = null;
-      return;
-    }
-    const win = floatedWindow;
+  /** Close the player without the platform's bookkeeping, then do the bookkeeping. */
+  const plainClose = (win, api, browser) => {
+    Promise.resolve(api?.closePipWindow?.(win))
+      .catch((err) => log("could not close the floated player", err))
+      .finally(() => {
+        // The plain close leaves the browser counted as pip'd, which would keep
+        // its docshell active for good. Do what the platform's own close does
+        // with that count.
+        try {
+          if (browser && api?.browserWeakMap?.has?.(browser)) {
+            api.removePiPBrowserFromWeakMap?.(browser);
+          }
+          api?.weakAutoPipBrowserToParent?.delete?.(browser);
+        } catch (err) {
+          // A closed tab needs no bookkeeping.
+        }
+        releaseDocShell(api, browser);
+      });
+  };
+
+  const closeFloated = (win) => {
     const api = pipApi();
     const browser = api?.weakWinToBrowser?.get?.(win) ?? null;
     const actorRef = browser ? api?.weakAutoPipBrowserToParent?.get?.(browser) ?? null : null;
-    floatedWindow = null;
     try {
       if (actorRef && api.closeSinglePipWindow) {
         // The same path the platform takes when the auto-pipped tab comes back
         // to the foreground: it clears the browser's PiP bookkeeping with it.
         Promise.resolve(api.closeSinglePipWindow({ reason: "Foregrounded", actorRef }))
-          .catch(() => api.closePipWindow?.(win))
-          .finally(() => releaseDocShell(api, browser));
-      } else {
-        Promise.resolve(api?.closePipWindow?.(win))
-          .catch((err) => log("could not close the floated player", err))
-          .finally(() => {
-            // The plain close leaves the browser counted as pip'd, which would
-            // keep its docshell active for good. Do what the platform's own
-            // close does with that count.
-            try {
-              if (browser && api?.browserWeakMap?.has?.(browser)) {
-                api.removePiPBrowserFromWeakMap?.(browser);
-              }
-              api?.weakAutoPipBrowserToParent?.delete?.(browser);
-            } catch (err) {
-              // A closed tab needs no bookkeeping.
+          .then(() => {
+            // A stale actor leaves that close a silent no-op, and the window
+            // would then sit there with the video still piped.
+            if (!win.closed) {
+              plainClose(win, api, browser);
             }
-            releaseDocShell(api, browser);
-          });
+          })
+          .catch(() => plainClose(win, api, browser));
+        return;
       }
     } catch (err) {
       log("could not close the floated player", err);
     }
-    // The video is still the same video, so a second departure can float it
-    // again without waiting for another tab switch to ask for it.
-    const request = lastRequest;
-    if (request?.wgp?.browsingContext) {
-      suppressed = request;
-    } else {
-      lastRequest = null;
+    plainClose(win, api, browser);
+  };
+
+  // ms to let the platform close the player first. Its own return-to-tab path
+  // focuses Zen before it closes the window, so this handler always runs first.
+  const FOLD_DELAY = 80;
+
+  /** Zen has focus again: close the player we opened, leaving the card in charge. */
+  const foldBack = () => {
+    const win = floatedWindow;
+    floatedWindow = null;
+    if (!win || win.closed) {
+      return;
     }
+    setTimeout(() => {
+      if (win.closed) {
+        // Closed by the player itself: return to tab, the close button, the
+        // chord. Nothing is waiting to be piped, so drop the kept request
+        // instead of floating a video the user just sent back to the page.
+        suppressed = null;
+        lastRequest = null;
+        return;
+      }
+      closeFloated(win);
+      // The video is still the same video, so a second departure can float it
+      // again without waiting for another tab switch to ask for it.
+      const request = lastRequest;
+      suppressed = request?.wgp?.browsingContext ? request : null;
+      if (!suppressed) {
+        lastRequest = null;
+      }
+    }, FOLD_DELAY);
   };
 
   installPipHook();
