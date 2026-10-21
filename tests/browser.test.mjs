@@ -1154,6 +1154,15 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("and the panel did not move sideways", t.mirror().style.left, "26px");
 }
 
+// 30j. the setting names the cost of the picture it turns on
+{
+  const settings = JSON.parse(fs.readFileSync("preferences.json", "utf8"));
+  const widget = settings.find((e) => e.property === "pip-tuck-away.in-widget");
+  check("the widget setting is there", !!widget, true);
+  check("and it says the frame rate is lower", /low framerate/.test(widget.label), true);
+  check("with the reason in its description", /frame rate/.test(widget.label), true);
+}
+
 // 30e2. a video that never produces a picture becomes a player window
 {
   const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });

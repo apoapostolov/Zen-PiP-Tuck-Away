@@ -102,7 +102,7 @@
   },
   {
     "property": "pip-tuck-away.in-widget",
-    "label": "PiP uses the widget *While the browser is in front, the video plays in the media widget and no player window is opened, so picture-in-picture stays yours. In the background the standard picture-in-picture is used, with its own size, place and tucked edge.*",
+    "label": "PiP uses the widget (low framerate) *While the browser is in front, the video plays in the media widget and no player window is opened, so picture-in-picture stays yours. In the background the standard picture-in-picture is used, with its own size, place and tucked edge. Firefox can only hand the widget a picture by reading every frame back on the CPU, so the video in the widget plays at a lower frame rate than the video itself.*",
     "type": "checkbox",
     "defaultValue": true
   },
