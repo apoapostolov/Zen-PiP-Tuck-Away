@@ -18,7 +18,7 @@
   },
   {
     "property": "pip-tuck-away.frosted",
-    "label": "Tucked PiP Frosted Glass *The strip a tucked player leaves is frosted, so it reads as a handle rather than a chopped-up sliver. Off, the strip is plain video.*",
+    "label": "Tucked PiP Frosted Glass",
     "type": "checkbox",
     "defaultValue": true
   },
@@ -102,7 +102,7 @@
   },
   {
     "property": "pip-tuck-away.in-widget",
-    "label": "PiP uses the widget (low framerate) *While the browser is in front, the video plays in the media widget and no player window is opened, so picture-in-picture stays yours. In the background the standard picture-in-picture is used, with its own size, place and tucked edge. Firefox can only hand the widget a picture by reading every frame back on the CPU, so the video in the widget plays at a lower frame rate than the video itself.*",
+    "label": "PiP uses the widget (low framerate)",
     "type": "checkbox",
     "defaultValue": true
   },

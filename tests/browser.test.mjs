@@ -1160,7 +1160,10 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   const widget = settings.find((e) => e.property === "pip-tuck-away.in-widget");
   check("the widget setting is there", !!widget, true);
   check("and it says the frame rate is lower", /low framerate/.test(widget.label), true);
-  check("with the reason in its description", /frame rate/.test(widget.label), true);
+  // No setting carries an inline hint: the label names the setting and nothing
+  // more, and the low frame rate is the one thing a name has to warn about.
+  const hints = settings.filter((e) => e.property && /\s\*[^*]/.test(e.label));
+  check("and no setting carries a hint beside its name", hints.map((e) => e.property), []);
 }
 
 // 30e2. a video that never produces a picture becomes a player window
