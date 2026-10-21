@@ -37,7 +37,6 @@
   const REVEAL_COOLDOWN = 250; // after a retract, no new reveal at once
   const BARE_ATTR = "pip-tuck-away-bare";
   const BARE_STYLE_ID = "pip-tuck-away-bare-style";
-  const BARE_MOVE = 24; // px the pointer must travel before the controls return
   const BARE_CSS = [
     ":root[pip-tuck-away-bare] .control-item{opacity:0 !important;transition:none !important}",
     // Firefox hides the cursor whenever the controls are hidden. In a bare
@@ -65,7 +64,6 @@
   let tuckedTimer = null;
   let reopenAfter = 0;
   let bare = false;
-  let bareAnchor = null;
   /** Screen coordinates of the pointer at its last event, so window moves cannot invalidate them. */
   let pointer = { x: 0, y: 0, at: 0 };
 
@@ -427,13 +425,12 @@
 
   /**
    * A reveal that comes from the pointer resting on the strip shows the video
-   * and nothing else. Firefox's own controls and the dim gradient wait for a
-   * pointer that actually travels, so peeking never looks like a click target.
+   * and nothing else. Firefox's own controls and the dim gradient stay away
+   * until the user reaches for them with a left press.
    */
   const setBare = (on) => {
     bare = !!on;
     if (!bare) {
-      bareAnchor = null;
       if (root.hasAttribute(BARE_ATTR)) {
         root.removeAttribute(BARE_ATTR);
       }
@@ -449,25 +446,7 @@
         log("could not style the bare reveal", err);
       }
     }
-    // The window is about to move, so a position taken now means nothing. The
-    // first move after the reveal settles sets the anchor.
-    bareAnchor = null;
     root.setAttribute(BARE_ATTR, "");
-  };
-
-  /** Controls come back only once the pointer has travelled in screen space. */
-  const watchBareMove = () => {
-    if (!bare || !peeked || revealing) {
-      return;
-    }
-    const here = { x: pointer.x, y: pointer.y };
-    if (!bareAnchor) {
-      bareAnchor = here;
-      return;
-    }
-    if (Math.hypot(here.x - bareAnchor.x, here.y - bareAnchor.y) >= BARE_MOVE) {
-      setBare(false);
-    }
   };
 
   const startPoll = () => {
@@ -504,7 +483,6 @@
     setBare(true);
     glide(...flushPos(spot), GLIDE_MS, () => {
       revealing = false;
-      bareAnchor = null;
     });
     startPoll();
   };
@@ -564,7 +542,6 @@
     rememberPointer(event);
     if (peeked) {
       clearLeave();
-      watchBareMove();
     }
     refreshSide();
   };
@@ -594,6 +571,18 @@
     // grace period covers a pointer crossing a gap.
     pointer = { ...pointer, at: 0 };
     scheduleLeave();
+  };
+
+  /**
+   * A left press is the user reaching for the player, so it brings the controls
+   * back. Movement does not: a peek must survive the pointer drifting, which is
+   * why the bare look is only given up on a press.
+   */
+  const onBarePress = (event) => {
+    if (!bare || event.button !== 0) {
+      return;
+    }
+    setBare(false);
   };
 
   const onResize = () => {
@@ -662,6 +651,7 @@
   };
 
   document.addEventListener("contextmenu", onContextMenu, true);
+  document.addEventListener("mousedown", onBarePress, true);
   document.addEventListener("mousemove", onMouseMove, true);
   document.addEventListener("mouseenter", onMouseEnter, true);
   document.addEventListener("mouseleave", onMouseLeave, true);
@@ -1066,6 +1056,7 @@
     }
     settleTimers = [];
     document.removeEventListener("contextmenu", onContextMenu, true);
+    document.removeEventListener("mousedown", onBarePress, true);
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mouseenter", onMouseEnter, true);
     document.removeEventListener("mouseleave", onMouseLeave, true);
