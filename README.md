@@ -44,6 +44,8 @@ Across that strip sits a small badge with a chevron pointing back out, on a fain
 
 The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, and it is kept current rather than written at the end: the place is checked every 200ms and saved the moment it changes. A player killed, crashed, or closed by something that never runs the unload handler still comes back where it was.
 
+For a few seconds after a player opens, the remembered place is put back if the window ends up somewhere else. Firefox restores a player's own saved geometry a moment after it opens, and a player that was closed while tucked was saved mostly off screen; without that correction the window is rescued to the nearest corner on the first resize and the corner becomes the place it opens at from then on. A position the mod itself chose, a rescue or a re-anchor, is never written down as yours.
+
 While a player is tucked, the note follows the axis that is real. Slide the strip along its edge and that becomes the spot the player returns to; the other axis is the place it came from, because the window is mostly off screen and cannot say where it wants to sit. Pull it out and the place it lands is remembered as well. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
 
 ## How wide the strip is
@@ -111,6 +113,10 @@ https://github.com/apoapostolov/Zen-PiP-Tuck-Away
 Restart Zen afterwards, because script mods load at startup.
 
 One requirement applies to every Sine mod installed from a repository rather than the store: JavaScript must be allowed. Check that `sine.allow-unsafe-js` is `true` in `about:config`, otherwise the mod installs, appears enabled, and does nothing at all. Mods that ship scripts run with full browser privileges, so read the two files in `scripts/` before you trust them. They are short and they only move a window.
+
+## When the player folds away by itself
+
+With player widget integration on, returning to Zen folds the floating player away so the sidebar media card takes over. That only happens when the tab that owns the video is the tab on screen. Coming back to Zen on any other tab leaves the player where it is, because a player sitting over a tab that has nothing to do with it is not in the way, and closing it there is how a player disappeared from an unrelated tab.
 
 ## Using it with Zia
 

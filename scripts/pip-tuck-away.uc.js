@@ -439,13 +439,44 @@
   // focuses Zen before it closes the window, so this handler always runs first.
   const FOLD_DELAY = 80;
 
-  /** Zen has focus again: close the player we opened, leaving the card in charge. */
+  /** Is the tab that owns this player the one the window is showing? */
+  const isForegroundTab = (browser) => {
+    try {
+      const tabbrowser = browser?.getTabBrowser?.();
+      if (!tabbrowser?.selectedBrowser) {
+        return true; // cannot tell: fold, which is what this hook is for
+      }
+      return tabbrowser.selectedBrowser === browser;
+    } catch (err) {
+      return true;
+    }
+  };
+
+  /**
+   * Zen has focus again: close the player we opened, leaving the card in charge.
+   *
+   * Only when the tab that owns it is the tab on screen. Coming back to Zen on
+   * some other tab is not coming back to the video, and the player is still the
+   * window being watched; closing it there is how a player disappeared from a
+   * tab that had nothing to do with it. The window stays marked, so arriving at
+   * the video's own tab still folds it away.
+   */
   const foldBack = () => {
     const win = floatedWindow;
-    floatedWindow = null;
     if (!win || win.closed) {
+      floatedWindow = null;
       return;
     }
+    let owner = null;
+    try {
+      owner = pipApi()?.weakWinToBrowser?.get?.(win) ?? null;
+    } catch (err) {
+      owner = null;
+    }
+    if (owner && !isForegroundTab(owner)) {
+      return;
+    }
+    floatedWindow = null;
     setTimeout(() => {
       if (win.closed) {
         // Closed by the player itself: return to tab, the close button, the

@@ -334,9 +334,11 @@
     if (visible >= w * h * 0.6) {
       return;
     }
-    window.moveTo(
-      Math.round(clamp(window.screenX, b.left + MARGIN, b.right - w - MARGIN)),
-      Math.round(clamp(window.screenY, b.top + MARGIN, b.bottom - h - MARGIN))
+    // Nothing remembered means nothing to go back to, so the window is put
+    // somewhere usable. That place is the mod's idea, not the user's.
+    moveWindow(
+      clamp(window.screenX, b.left + MARGIN, b.right - w - MARGIN),
+      clamp(window.screenY, b.top + MARGIN, b.bottom - h - MARGIN)
     );
   };
 
@@ -398,6 +400,9 @@
     const fromY = window.screenY;
     const dx = x - fromX;
     const dy = y - fromY;
+    // The glide is the mod moving the window, and where it lands is not a place
+    // the user chose.
+    modTarget = { x: Math.round(x), y: Math.round(y) };
     const finish = () => {
       animating = false;
       settleUntil = Date.now() + PEEK_SETTLE;
@@ -875,13 +880,21 @@
   const onResize = () => {
     updateOverlay();
     refreshSide();
-    rescuePosition();
-    if (state !== "tucked" || document.fullscreenElement) {
+    if (state === "tucked") {
+      if (!document.fullscreenElement) {
+        // Both positions are measured from the window size, so a resize
+        // re-anchors whichever of the two is on screen.
+        moveWindow(...(peeked ? flushPos(spot) : tuckedPos(spot)));
+      }
       return;
     }
-    // Both positions are measured from the window size, so a resize re-anchors
-    // whichever of the two is on screen.
-    window.moveTo(...(peeked ? flushPos(spot) : tuckedPos(spot)));
+    // A remembered place beats a rescue. A window that is off screen right after
+    // it opened is usually the platform putting back the geometry it saved when
+    // the player was closed while tucked, and rescuing that to the nearest
+    // corner is what made a player open in the corner from then on.
+    if (!enforceHome()) {
+      rescuePosition();
+    }
   };
 
   const onFullscreenChange = () => {
@@ -987,6 +1000,24 @@
   };
 
   let persistedHome = null; // the last value written, so a poll cannot spam prefs
+  let modTarget = null; // the last place the mod itself put the window
+  const LOADED_AT = Date.now();
+  const HOME_WINDOW = 3000; // ms after load that the remembered place is enforced
+
+  /**
+   * Every move this mod makes goes through here, so a later tick can tell a
+   * place the user chose from a place the mod imposed. A rescue, a re-anchor or
+   * a restore must never be written down as the user's position, or the one
+   * place the player was rescued to becomes the place it always opens at.
+   */
+  const moveWindow = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return false;
+    }
+    modTarget = { x: Math.round(x), y: Math.round(y) };
+    window.moveTo(modTarget.x, modTarget.y);
+    return true;
+  };
   // The spawn point is not a position anybody asked for. Nothing is remembered
   // until the player has been placed: at that moment the remembered place has
   // been read and the first real move can be tracked.
@@ -1011,6 +1042,42 @@
    * it down loses every move when the player is killed, crashes, or the browser
    * is closed by something that does not run unload handlers.
    */
+  /**
+   * The platform restores a player's own last geometry a moment after it opens,
+   * which for a player that was closed while tucked is a mostly off screen
+   * place. Left alone, the window is then rescued to the nearest corner, and the
+   * corner becomes the place it opens at forever. So for the first few seconds
+   * the remembered place is put back, unless the pointer says a person is
+   * already working with the window.
+   */
+  const enforceHome = () => {
+    if (state !== "free" || document.fullscreenElement || animating || revealing) {
+      return false;
+    }
+    if (Date.now() - LOADED_AT > HOME_WINDOW) {
+      return false;
+    }
+    if (hovering() || Date.now() - pointer.at < 1200) {
+      return false;
+    }
+    // The place on disk, never the in-memory one: while the window sits where
+    // the platform put it, the in-memory home has already been dragged along to
+    // that position, and enforcing it would enforce nothing.
+    const wanted = readHome();
+    const b = screenBox();
+    const w = W();
+    const h = H();
+    if (!wanted || !w || !h) {
+      return false;
+    }
+    const x = Math.round(clamp(wanted.x, b.left + MARGIN, b.right - w - MARGIN));
+    const y = Math.round(clamp(wanted.y, b.top + MARGIN, b.bottom - h - MARGIN));
+    if (Math.abs(window.screenX - x) <= 2 && Math.abs(window.screenY - y) <= 2) {
+      return false;
+    }
+    return moveWindow(x, y);
+  };
+
   const trackPosition = () => {
     if (!tracking) {
       return;
@@ -1018,7 +1085,19 @@
     if (document.fullscreenElement || animating || revealing || Date.now() < settleUntil) {
       return;
     }
+    enforceHome();
     syncHome();
+    // A place the mod put the window in is not a place the user chose: a rescue,
+    // a re-anchor or a restore must never be written down as their position, or
+    // the corner a player was once rescued to becomes the place it always opens
+    // at. A window that has been moved since is the user's again.
+    if (
+      modTarget &&
+      Math.abs(window.screenX - modTarget.x) <= 2 &&
+      Math.abs(window.screenY - modTarget.y) <= 2
+    ) {
+      return;
+    }
     persistHome();
   };
 
@@ -1038,7 +1117,7 @@
       log("could not publish the strip width", err);
     }
     if (changed && state === "tucked" && spot && !animating && !document.fullscreenElement) {
-      window.moveTo(...(peeked ? flushPos(spot) : tuckedPos(spot)));
+      moveWindow(...(peeked ? flushPos(spot) : tuckedPos(spot)));
     }
     return width;
   };
@@ -1569,7 +1648,7 @@
     if (Math.abs(window.screenX - x) <= 2 && Math.abs(window.screenY - y) <= 2) {
       return true;
     }
-    window.moveTo(x, y);
+    moveWindow(x, y);
     return true;
   };
 
@@ -1712,7 +1791,7 @@
     // more than once: first for a place this mod remembers, then that whatever
     // is left is somewhere the user can see.
     const placePlayer = () => {
-      if (!restoreHome()) {
+      if (!restoreHome() && !enforceHome()) {
         rescuePosition();
       }
       tracking = true;
@@ -1784,7 +1863,18 @@
     untuck,
     destroy,
     isTucked: () => state === "tucked",
-    stats: () => ({ state, spot, home, tracking, sliver, peeked }),
+    stats: () => ({ state, spot, home, tracking, sliver, peeked, modTarget, loadedAt: LOADED_AT }),
+    why: () => ({
+      hover: hovering(),
+      pointerAt: pointer.at,
+      nowMinusPointer: Date.now() - pointer.at,
+      animating,
+      revealing,
+      age: Date.now() - LOADED_AT,
+      disk: readHome(),
+      pos: [window.screenX, window.screenY],
+      hp: homePos(),
+    }),
   };
   /**
    * Last chance to note where the player belongs: while tucked that is the
