@@ -1574,6 +1574,39 @@ const check = (name, actual, expected) => {
   check("the bar is switched off in the sheet too", css.includes(":root[pip-docked] #controls"), true);
 }
 
+// 24h. leaving the widget gives the player its own size back
+{
+  const t = mk({ "pip-tuck-away.home": "700,300" });
+  t.runTimers();
+  t.flush();
+  check("a player's own size to start", t.size(), [380, 214]);
+  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
+  check("shrunk into the widget", t.size(), [320, 180]);
+  t.api.undock();
+  check("and its own size again", t.size(), [380, 214]);
+  check("at the remembered place", t.pos(), [700, 300]);
+  check("and not tucked", t.api.isTucked(), false);
+}
+
+// 24i. a player tucked before the widget is tucked again after it
+{
+  const t = mk({ "pip-tuck-away.home": "700,300" });
+  t.runTimers();
+  t.flush();
+  t.api.tuck("right");
+  t.flush();
+  check("tucked to start", t.api.isTucked(), true);
+  t.api.dock({ x: 100, y: 200, width: 320, height: 180 });
+  t.flush();
+  check("in the widget", t.attrs.has("pip-docked"), true);
+  check("at panel size", t.size(), [320, 180]);
+  t.api.undock();
+  t.flush();
+  check("tucked again", t.api.isTucked(), true);
+  check("at the player's own size", t.size(), [380, 214]);
+  check("with the strip on its edge", t.pos()[0] > 1600, true);
+}
+
 // 24f. a platform resize cannot tear the panel out of the gap
 {
   const t = mk({});

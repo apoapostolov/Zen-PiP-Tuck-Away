@@ -1,7 +1,7 @@
 {
   "id": "pip-tuck-away",
   "name": "PiP Tuck Away",
-  "description": "Tuck the PiP player into a screen edge and play it in Zen's media card.",
+  "description": "Tuck the player into a screen edge, and show the video in Zen's media widget.",
   "author": "Apostol Apostolov",
   "version": "0.1.0",
   "license": "MIT",
@@ -17,6 +17,9 @@
   "fork": [
     "zen"
   ],
+  "style": {
+    "chrome": "styles/chrome.css"
+  },
   "preferences": "preferences.json",
   "scripts": {
     "scripts/pip-tuck-away.uc.js": {

@@ -75,6 +75,121 @@ function mk(prefsIn = {}, opts = {}) {
   const closedWindows = [];
   const closedSingle = [];
   const pipWindows = [];
+  const mirrorNodes = Object.create(null);
+  const makeElement = (tag) => {
+    const node = {
+      tagName: String(tag).toUpperCase(),
+      id: "",
+      className: "",
+      title: "",
+      style: {},
+      attrs: {},
+      children: [],
+      parent: null,
+      listeners: {},
+      width: 0,
+      height: 0,
+      painted: null,
+      append(...kids) {
+        for (const kid of kids) {
+          kid.parent = node;
+          node.children.push(kid);
+        }
+      },
+      remove() {
+        if (node.parent) {
+          node.parent.children = node.parent.children.filter((c) => c !== node);
+          node.parent = null;
+        }
+        if (node.id) delete mirrorNodes[node.id];
+      },
+      setAttribute(name, value) {
+        node.attrs[name] = String(value);
+        if (name === "id") {
+          node.id = String(value);
+          mirrorNodes[node.id] = node;
+        }
+        if (name === "class") node.className = String(value);
+      },
+      getAttribute(name) {
+        return node.attrs[name] ?? null;
+      },
+      hasAttribute(name) {
+        return name in node.attrs;
+      },
+      removeAttribute(name) {
+        delete node.attrs[name];
+      },
+      toggleAttribute(name, on) {
+        if (on) node.attrs[name] = "";
+        else delete node.attrs[name];
+      },
+      addEventListener(type, fn) {
+        (node.listeners[type] ||= []).push(fn);
+      },
+      fire(type, event = {}) {
+        for (const fn of [...(node.listeners[type] || [])]) fn(event);
+      },
+      get firstElementChild() {
+        return node.children[0] ?? null;
+      },
+      getContext() {
+        return {
+          putImageData: (data) => {
+            node.painted = data;
+          },
+        };
+      },
+      querySelector(selector) {
+        return find(node, String(selector).trim().split(/\s+/));
+      },
+      querySelectorAll: () => [],
+    };
+    return node;
+  };
+
+  const matchesPart = (node, part) => {
+    const tag = part.match(/^[a-zA-Z]+/)?.[0]?.toUpperCase();
+    const id = part.match(/#([\w-]+)/)?.[1];
+    const cls = part.match(/\.([\w-]+)/)?.[1];
+    if (tag && node.tagName !== tag) return false;
+    if (id && node.id !== id) return false;
+    if (cls && !String(node.className).split(/\s+/).includes(cls)) return false;
+    return true;
+  };
+
+  const findById = (root, id) => {
+    for (const kid of root?.children ?? []) {
+      if (kid.id === id) return kid;
+      const deeper = findById(kid, id);
+      if (deeper) return deeper;
+    }
+    return null;
+  };
+
+  const find = (root, parts) => {
+    const [head, ...rest] = parts;
+    for (const kid of root.children) {
+      if (matchesPart(kid, head)) {
+        if (rest.length === 0) return kid;
+        const deeper = find(kid, rest);
+        if (deeper) return deeper;
+      }
+      const inside = find(kid, parts);
+      if (inside) return inside;
+    }
+    return null;
+  };
+
+  const substitutions = Object.create(null);
+  const registeredActors = Object.create(null);
+  const Cc = {
+    "@mozilla.org/chrome/chrome-registry;1": {
+      getService: () => ({ convertChromeURL: (uri) => ({ spec: uri.spec }) }),
+    },
+  };
+  const Ci = { nsIChromeRegistry: 1, nsIFile: 1, nsIResProtocolHandler: 1 };
+
   const tabStrip = {
     _events: {},
     addEventListener(type, fn) {
@@ -165,6 +280,11 @@ function mk(prefsIn = {}, opts = {}) {
   }[cardMode] ?? { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
   const mediaBar = {
     hidden: cardMode === "absent",
+    children: [],
+    append(node) {
+      node.parent = mediaBar;
+      mediaBar.children.push(node);
+    },
     style: {
       props: {},
       setProperty(k, v) {
@@ -214,16 +334,8 @@ function mk(prefsIn = {}, opts = {}) {
       querySelector: (sel) => (sel === "#zen-media-controls-toolbar" ? mediaBar : null),
       querySelectorAll: (sel) =>
         sel === ".pip-tuck-away-dock" ? dockSpacers.slice() : [],
-      createElementNS: (_ns, tag) => ({
-        tagName: tag,
-        className: "",
-        style: { height: "" },
-        setAttribute() {},
-        getBoundingClientRect() {
-          const height = parseFloat(this.style.height) || 0;
-          return { left: 20, top: 460, width: 288, height, right: 308, bottom: 460 + height };
-        },
-      }),
+      getElementById: (id) => findById(mediaBar, id),
+      createElementNS: (_ns, tag) => makeElement(tag),
     },
     mozInnerScreenX: opts.screenX ?? 0,
     mozInnerScreenY: opts.screenY ?? 0,
@@ -270,9 +382,22 @@ function mk(prefsIn = {}, opts = {}) {
           if (i >= 0) wwObservers.splice(i, 1);
         },
       },
+      io: {
+        newURI: (spec) => ({ spec }),
+        newFileURI: (file) => ({ spec: `file:///${file.path ?? "mod"}/` }),
+        getProtocolHandler: () => ({
+          QueryInterface: () => ({
+            hasSubstitution: () => false,
+            setSubstitution: (name, uri) => {
+              substitutions[name] = uri;
+            },
+          }),
+        }),
+      },
       focus: {
         get activeWindow() {
-          return opts.frontWithApp === false ? null : window;
+          // Another application in front, or this window not focused at all.
+          return opts.frontWithApp === false || focused === false ? null : window;
         },
       },
       wm: {
@@ -294,7 +419,15 @@ function mk(prefsIn = {}, opts = {}) {
         },
       },
     },
-    ChromeUtils: { importESModule: () => pipModule },
+    ChromeUtils: {
+      importESModule: () => pipModule,
+      registerWindowActor: (name, spec) => {
+        registeredActors[name] = spec;
+      },
+      unregisterWindowActor: (name) => {
+        delete registeredActors[name];
+      },
+    },
     Components: { interfaces: { nsIFile: "nsIFile" } },
     IOUtils: {
       async exists(path) {
@@ -333,6 +466,19 @@ function mk(prefsIn = {}, opts = {}) {
     Object,
     Error,
     JSON,
+    Cc,
+    Ci,
+    Components: {
+      interfaces: { nsIFile: "nsIFile" },
+      stack: { filename: "chrome://sine/content/pip-tuck-away/scripts/pip-tuck-away.uc.js" },
+    },
+    ImageData: class {
+      constructor(data, width, height) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+      }
+    },
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
@@ -389,6 +535,11 @@ function mk(prefsIn = {}, opts = {}) {
     },
     barStyle: mediaBar.style,
     dockCardEl,
+    mirrorNodes,
+    registeredActors,
+    substitutions,
+    controller: () => window.PipMirror,
+    mirror: () => window.document.getElementById("pip-tuck-away-mirror"),
     setFront(on) {
       opts.frontWithApp = on;
     },
@@ -645,19 +796,39 @@ const wgpFor = (active, opts = {}) => {
       shouldActivateDocShell: () => !!opts.wantsActive,
     }),
   };
-  return { browsingContext: { top: { embedderElement: browser } }, browser };
+  const context = { id: opts.bcId ?? 42, top: { embedderElement: browser } };
+  const launcher = [];
+  context.currentWindowGlobal = {
+    getActor: (name) => {
+      if (name === "PipMirror") return opts.actor ?? mirrorActor;
+      if (name === "PictureInPictureLauncher") {
+        return { sendAsyncMessage: (msg) => launcher.push(msg) };
+      }
+      return null;
+    },
+  };
+  browser.browsingContext = context;
+  return { browsingContext: context, browser, launcher };
 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+/** The actor a mirrored tab talks through, and what it was told. */
+const mirrorActor = {
+  sent: [],
+  sendAsyncMessage(name, data) {
+    mirrorActor.sent.push({ name, data });
+  },
+};
+
 // 14. the request handler is wrapped on load
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   check("request handler wrapped", !!t.pipApi().handlePictureInPictureRequest.__pipTuckAway, true);
 }
 
 // 16f. leaving Zen with the video's own tab selected asks the tab for a player
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   t.windows.length = 0; // no player open yet
   t.emit("deactivate");
   await tick();
@@ -667,7 +838,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 // 16g. no second ask while a player is open
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   t.windows.length = 0;
   t.emit("deactivate");
   await tick();
@@ -678,7 +849,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 // 16h. no ask when the feature is off, or the tab is muted
 {
-  const off = mk({ "pip-tuck-away.inline-in-zen": false });
+  const off = mk({ "pip-tuck-away.inline-in-zen": false, "pip-tuck-away.in-widget": false });
   off.windows.length = 0;
   off.emit("deactivate");
   await tick();
@@ -697,14 +868,14 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 // theory that Zen's media card would drive the video, and a held request meant
 // the first switch showed nothing at all while a later one produced a player.
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   await t.pipApi().handlePictureInPictureRequest(wgpFor(false), { src: "video" });
   check("the first switch opens the player", t.pipCalls.length, 1);
 }
 
 // 17b. and nothing arrives late, whatever timers are pending
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown", deferTimers: true });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown", deferTimers: true });
   await t.pipApi().handlePictureInPictureRequest(wgpFor(false), { src: "video" });
   check("opened straight away", t.pipCalls.length, 1);
   t.runTimers();
@@ -712,17 +883,17 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
   check("and nothing else opens afterwards", t.pipCalls.length, 1);
 }
 
-// 17c. the trace says the request was passed on rather than held
+// 17c. the trace says what happened to the request
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": true }, { mediaCard: "shown" });
   await t.pipApi().handlePictureInPictureRequest(wgpFor(false), { src: "video" });
   await tick();
-  check("the request is recorded as passed on", /=> passed to the platform/.test(t.traces()), true);
+  check("the request is recorded as mirrored", /mirror: the widget shows the video/.test(t.traces()), true);
 }
 
 // 18. activating with no floated window does nothing
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   t.emit("activate");
   await tick();
   check("no window to close", t.closedWindows.length, 0);
@@ -745,14 +916,14 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 
 // 19. an explicit request still opens the player
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   await t.pipApi().handlePictureInPictureRequest(wgpFor(true), { src: "video" });
   check("explicit request passes through", t.pipCalls.length, 1);
 }
 
 // 20. the setting off leaves the auto path alone
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": false });
+  const t = mk({ "pip-tuck-away.inline-in-zen": false, "pip-tuck-away.in-widget": false });
   await t.pipApi().handlePictureInPictureRequest(wgpFor(false), { src: "video" });
   check("auto request passes through when off", t.pipCalls.length, 1);
 }
@@ -840,7 +1011,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 26. coming back to the tab the player came from puts the video back
 {
-  const t = mk({});
+  const t = mk({ "pip-tuck-away.in-widget": false });
   t.pipWindows.push(t.windows[0]); // the platform's registry of player windows
   const wgp = wgpFor(false); // the docshell is inactive: the automatic path
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
@@ -902,7 +1073,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 23f. a player that is already open is never doubled up
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   t.pipWindows.push(t.windows[0]); // the platform's registry of player windows
   const wgp = wgpFor(false, { selected: false }); // the tab's own departure opened it
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
@@ -936,9 +1107,99 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("and six pixels above it while hovered", expanded.y + expanded.height + 6, 340);
 }
 
+// 30. in front, a playing video is shown by the widget and no player is opened
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const wgp = wgpFor(false, { selected: false });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  check("no player window was opened", t.pipCalls.length, 0);
+  check("the widget has the video", !!t.mirror(), true);
+  check("the canvas is in the toolbar", t.mirror()?.parent !== null, true);
+  check("it sits above the card, at the card's width", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
+  check("and the widget makes room for it", t.barStyle.props["--zen-media-collapsed-height"] !== undefined, true);
+  check("the tab was asked to start copying", mirrorActor.sent.map((m) => m.name), ["PipMirror:Start"]);
+  check("the actor is registered", Object.keys(t.registeredActors), ["PipMirror"]);
+}
+
+// 30b. in the background the request goes to the platform, untouched
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", frontWithApp: false });
+  await t.pipApi().handlePictureInPictureRequest(wgpFor(false), {});
+  await tick();
+  check("the platform opened the player", t.pipCalls.length, 1);
+  check("and the widget shows nothing", t.mirror(), null);
+}
+
+// 30c. with the setting off nothing is mirrored
+{
+  const t = mk({ "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
+  await t.pipApi().handlePictureInPictureRequest(wgpFor(false), {});
+  await tick();
+  check("the platform opened the player", t.pipCalls.length, 1);
+  check("and the widget shows nothing", t.mirror(), null);
+}
+
+// 30d. a protected video falls back to a player window
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const wgp = wgpFor(false, { selected: false, bcId: 7 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  t.controller().mirrorStarted(7, { encrypted: true, width: 1920, height: 1080 }, mirrorActor);
+  await tick();
+  check("the platform got the request after all", t.pipCalls.length, 1);
+  check("and the widget let go of it", t.mirror(), null);
+}
+
+// 30e. a copied frame is painted
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const wgp = wgpFor(false, { selected: false, bcId: 11 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  const frame = { buf: new ArrayBuffer(4 * 4 * 2 * 2), width: 2, height: 2, time: 3, duration: 60, paused: false };
+  t.controller().mirrorStarted(11, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(11, frame);
+  check("the canvas has pixels", t.mirror().firstElementChild.painted?.width, 2);
+  check("and the play button says pause", t.mirror().querySelector(".pip-tuck-away-mirror-button path").getAttribute("d").startsWith("M4 2h4"), true);
+  check("a click on the picture is a play/pause", (t.mirror().firstElementChild.fire("click", {}) ?? true) && mirrorActor.sent.some((m) => m.name === "PipMirror:Control" && m.data.action === "toggle"), true);
+}
+
+// 30f. leaving the browser hands the video to the standard player
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  t.windows.length = 0; // the widget is showing it: no player window exists
+  const wgp = wgpFor(false, { selected: false, bcId: 13 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  t.emit("deactivate");
+  await tick();
+  check("the widget stopped copying", mirrorActor.sent.map((m) => m.name).includes("PipMirror:Stop"), true);
+  check("the widget let go of the panel", t.mirror(), null);
+  check("and the tab was asked for its player", wgp.launcher, ["PictureInPicture:AutoToggle"]);
+}
+
+// 30g. the video's own tab coming forward ends the mirror
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const wgp = wgpFor(false, { selected: false, bcId: 17 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  t.select(wgp.browser);
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  check("the widget stopped copying", mirrorActor.sent.map((m) => m.name).includes("PipMirror:Stop"), true);
+  check("and the panel is gone", t.mirror(), null);
+}
+
 // 22. unload puts the original handler back
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true }, { mediaCard: "shown" });
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   t.unload();
   check("handler restored on unload", !!t.pipApi().handlePictureInPictureRequest.__pipTuckAway, false);
 }

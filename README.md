@@ -33,23 +33,24 @@ Hovering the strip slides the whole player back into view when the peek setting 
 | Tuck width | Normal | How much of the player stays on screen: Normal (24px), Wide (48px) or Very wide (72px) |
 | Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player out until the pointer leaves the video |
-| Play the video in the media widget | on | The player is embedded in Zen's media card, in room made inside the widget |
+| PiP uses the widget | on | In front, the video plays in the media widget and no player is opened. In the background, the standard picture-in-picture is used |
 | Pop the player out when leaving Zen | off | Leaving Zen asks the tab in front for a player, which the platform does not do on its own |
 | Auto tuck on PiP switch | off | A new player opens already tucked instead of appearing in its normal place first |
 
 ## The video in the media widget
 
-Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **Play the video in the media widget** on, the player is embedded in the widget: the toolbar is made taller to hold it, and the panel sits in that room, above the card's rows, at the widget's width and the video's own shape.
+Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **PiP uses the widget** on, a playing video in another tab is shown in that widget, and no player window is opened at all.
 
-The room is real. Zen's media toolbar takes its height from `--zen-media-collapsed-height`, so growing that variable is how the panel gets a laid-out slot: the toolbar becomes taller, the tab list above gives the space up, and the card keeps its place at the bottom of the box. Nothing is added to the card's markup, and nothing floats over the sidebar. The room reserved is the panel plus what the card grows by when it is hovered, and the panel sits a few pixels above the card's own top edge, so the gap between the two is the same small size whether the card is at rest or open.
+The widget shows a copy of the picture, not a player. A content actor in the page copies the video's frames into a small canvas, which is drawn in the sidebar at the widget's width and the video's own shape, in room made inside the toolbar itself. The video never moves: the page keeps playing it, the page keeps its sound, and nothing is loaded twice. A click on the picture plays or pauses, and the two small buttons that appear on hover do the same and open a real player if you would rather have one.
 
-The panel is a window, and that is the one honest limit: the playing video lives in the player's own browsing context and cannot be moved into a document. The only way to paint video inside the page is a frame mirror, which has no sound of its own and goes black on protected content. A docked window is the real video with the real audio, and nothing is reloaded, so playback never restarts. What the panel does not have is the player's own furniture: its control bar is built for a window and reads as a wall of buttons at panel size, so it is switched off while docked and the picture is the whole of it. A click still pauses and plays.
+That is the point of doing it this way. Picture-in-picture is never in use while the browser is in front, so it keeps its own remembered size, its own place and its own tucked edge, and it is exactly what appears the moment you leave the browser. Nothing about it is borrowed, moved or resized by this mod.
 
-The panel is embedded only while Zen is the window in front. A docked panel belongs to the widget the way a picture on a wall belongs to the room, so leaving Zen hands the player back as real picture-in-picture: the same window, at the place you last left it, floating over whatever comes next, with nothing reloaded and playback untouched. Coming back to Zen puts it in the widget again. That is also why leaving Zen no longer opens a second player: if one is already on screen, it is the one that pops out and the one that folds away when you return to the video's tab.
+Two honest limits:
 
-The panel comes out when the card goes away, when the setting is off, and when you tuck it, and the toolbar's room is given back with it. With more than one playing tab the mod looks for the card whose title matches the video's tab, and otherwise uses the first card on screen.
+- **Protected video copies as black.** A frame copy of an encrypted stream cannot be read, so when a page reports a media key system the widget steps aside and a normal player window opens instead, docked where the panel would have been. YouTube, Twitch and most sites are fine; a DRM service is not.
+- **A copy costs a little.** Frames are downscaled to 480px on the long edge and sent about twenty times a second, which is nothing on a modern machine but is not free. A paused video sends one frame and then stays quiet.
 
-## Going back to the tab
+## Going back to the tab## Going back to the tab
 
 Selecting the tab a player came from puts the video back in the page and takes the player away. Firefox does that itself, but only for the players it registered as caught by a tab switch, and that registration depends on the tab's docshell still being asleep when the player opened. Anything that wakes it first loses the behaviour silently, and the player simply stays where it is. So the mod keeps its own note of which tabs it saw a player taken from, and closes that player when the tab comes forward, either in the tab strip or by returning to Zen with that tab in front. A player you asked for by hand is left alone, since it was not the tab walking away that opened it.
 

@@ -96,7 +96,7 @@
   },
   {
     "property": "pip-tuck-away.in-widget",
-    "label": "Play the video in the media widget",
+    "label": "PiP uses the widget *While the browser is in front, the video plays in the media widget and no player window is opened, so picture-in-picture stays yours. In the background the standard picture-in-picture is used, with its own size, place and tucked edge.*",
     "type": "checkbox",
     "defaultValue": true
   },

@@ -474,8 +474,10 @@
   const tuck = (side = null) => {
     if (docked) {
       // Tucking a docked panel means leaving the widget first, otherwise the
-      // strip would be drawn inside the card's gap.
-      undock();
+      // strip would be drawn inside the card's gap, and the strip is the size of
+      // a player rather than the size of a panel.
+      leaveDock();
+      restoreStandard();
     }
     if (document.fullscreenElement) {
       return false;
@@ -1132,6 +1134,10 @@
   // comes from, and the video never restarts because nothing is reloaded.
   const DOCK_ATTR = "pip-docked";
   let docked = null; // { x, y, width, height } in screen pixels
+  // The player as it was before it went into the widget: its own size, and
+  // whether it was tucked. Outside the widget it is a player again, and a player
+  // is the size picture-in-picture makes it and tucked if that is how it was.
+  let beforeDock = null;
 
   const isDocked = () => !!docked;
 
@@ -1161,6 +1167,13 @@
       Math.abs(docked.y - next.y) < 1 &&
       Math.abs(docked.width - next.width) < 1 &&
       Math.abs(docked.height - next.height) < 1;
+    if (!docked) {
+      beforeDock = {
+        width: Math.round(window.outerWidth ?? 0),
+        height: Math.round(window.outerHeight ?? 0),
+        side: state === "tucked" ? spot : null,
+      };
+    }
     docked = next;
     if (same) {
       // Still ask for the bare state: something else may have handed the
@@ -1185,7 +1198,8 @@
   };
 
   /** Back to being a player: the remembered place, or wherever it was tucked. */
-  const undock = () => {
+  /** Leave the widget without touching the window's size or place. */
+  const leaveDock = () => {
     if (!docked) {
       return false;
     }
@@ -1195,12 +1209,34 @@
     } catch (err) {
       // A window on its way out needs nothing.
     }
-    if (state === "tucked") {
-      moveWindow(...tuckedPos(spot));
-      return true;
+    setBare(false);
+    updateOverlay();
+    return true;
+  };
+
+  /** Put the size picture-in-picture had back, and say what state it was in. */
+  const restoreStandard = () => {
+    const was = beforeDock;
+    beforeDock = null;
+    if (was?.width && was?.height) {
+      try {
+        window.resizeTo(was.width, was.height);
+      } catch (err) {
+        log("could not give the player its own size back", err);
+      }
     }
+    return was;
+  };
+
+  const undock = () => {
+    if (!leaveDock()) {
+      return false;
+    }
+    const was = restoreStandard();
     // The place it belongs is the one it was left at, on disk if this window
-    // never worked it out for itself.
+    // never worked it out for itself. Restoring it before anything else matters:
+    // a tuck remembers the place the player came from, and that place is not the
+    // panel's seat in the sidebar.
     if (!home) {
       const remembered = readHome();
       if (remembered) {
@@ -1210,6 +1246,11 @@
     }
     const [x, y] = clampPoint(home);
     moveWindow(x, y);
+    // Tucked before it went into the widget means tucked again now, at the same
+    // edge and at the player's own size.
+    if (was?.side) {
+      return tuck(was.side);
+    }
     return true;
   };
 

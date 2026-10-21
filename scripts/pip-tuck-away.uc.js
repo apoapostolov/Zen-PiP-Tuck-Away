@@ -168,6 +168,10 @@
     // The platform's own handler runs on the same event; letting it go first
     // means this is only needed when its registration is missing.
     setTimeout(closeForForegroundTab, 0);
+    // The video is in the page now, so the widget has nothing left to show.
+    if (mirrorBrowser && isForegroundTab(mirrorBrowser)) {
+      stopMirror("its own tab came forward");
+    }
   };
 
   const watchTabs = (win) => {
@@ -683,6 +687,411 @@
     cardWatchTick();
   };
 
+  // --------------------------------------------------------------- the mirror
+  //
+  // While the browser is in front, a playing video in another tab is shown by
+  // copying its frames into a canvas in the sidebar. No player window is opened
+  // at all, so the browser's own picture-in-picture keeps its remembered size,
+  // its place and its tucked edge, and it is exactly what appears the moment
+  // the browser goes to the background. That is the whole point of the mirror:
+  // the widget shows the video without ever standing in for picture-in-picture.
+  //
+  // A mirror copies pixels, so protected video comes back black. When the page
+  // reports a media key system the mod hands the request to the platform and
+  // docks the real player instead, which is the path it has always had.
+
+  const MIRROR_ACTOR = "PipMirror";
+  const MIRROR_RES = "pip-tuck-away";
+  const MIRROR_VERSION = "1"; // bump when either actor file changes
+  const MIRROR_ID = "pip-tuck-away-mirror";
+  const XHTML_NS = "http://www.w3.org/1999/xhtml";
+  const PLAY_ICON = "M4 2l12 8-12 8z";
+  const PAUSE_ICON = "M4 2h4v14H4zM10 2h4v14h-4z";
+  const PIP_ICON = "M2 3h14v10H2zM8 8h7v5H8z";
+
+  let mirrorReady = false; // the actor registered: the mirror can be used at all
+  let mirrorActor = null; // the parent actor of the tab being mirrored
+  let mirrorBrowser = null;
+  let mirrorCanvas = null;
+  let mirrorContext = null;
+  let mirrorAspect = 16 / 9;
+  let mirrorState = { paused: false, time: 0, duration: 0 };
+  let heldRequest = null; // a request no player was opened for, kept for the fallback
+  let lastMirrored = null; // the tab the widget was showing when the browser lost focus
+  const forcedPip = new WeakSet();
+
+  /** The mod's own folder, wherever Sine keeps it, as a resource:// alias. */
+  const registerMirrorResources = () => {
+    const id =
+      /^chrome:\/\/sine\/content\/([^/]+)\//.exec(Components.stack?.filename ?? "")?.[1] ??
+      "pip-tuck-away";
+    let folder;
+    try {
+      folder = Cc["@mozilla.org/chrome/chrome-registry;1"]
+        .getService(Ci.nsIChromeRegistry)
+        .convertChromeURL(Services.io.newURI(`chrome://sine/content/${id}/`));
+    } catch (err) {
+      const dir = Services.dirsvc.get("ProfD", Ci.nsIFile);
+      for (const part of ["chrome", "sine-mods", id]) {
+        dir.append(part);
+      }
+      folder = Services.io.newFileURI(dir);
+    }
+    const protocols = Services.io
+      .getProtocolHandler("resource")
+      .QueryInterface(Ci.nsIResProtocolHandler);
+    if (!protocols.hasSubstitution(MIRROR_RES)) {
+      protocols.setSubstitution(MIRROR_RES, folder);
+    }
+  };
+
+  const setupMirror = () => {
+    try {
+      registerMirrorResources();
+      ChromeUtils.registerWindowActor(MIRROR_ACTOR, {
+        parent: {
+          esModuleURI: `resource://${MIRROR_RES}/scripts/pip-mirror-parent.sys.mjs?v=${MIRROR_VERSION}`,
+        },
+        child: {
+          esModuleURI: `resource://${MIRROR_RES}/scripts/pip-mirror-child.sys.mjs?v=${MIRROR_VERSION}`,
+          events: {
+            play: { capture: true, mozSystemGroup: true },
+            playing: { capture: true, mozSystemGroup: true },
+            pause: { capture: true, mozSystemGroup: true },
+            ended: { capture: true, mozSystemGroup: true },
+            emptied: { capture: true, mozSystemGroup: true },
+            seeked: { capture: true, mozSystemGroup: true },
+            durationchange: { capture: true, mozSystemGroup: true },
+          },
+        },
+        messageManagerGroups: ["browsers"],
+        allFrames: true,
+        safeForUntrustedWebProcess: true,
+      });
+      mirrorReady = true;
+      // Registration is lazy: wake the actor for the tabs that are already open.
+      for (const browser of window.gBrowser?.browsers ?? []) {
+        try {
+          browser.browsingContext?.currentWindowGlobal?.getActor(MIRROR_ACTOR);
+        } catch (err) {
+          // A tab without a live global will get one when it loads.
+        }
+      }
+    } catch (err) {
+      if (err?.name !== "NotSupportedError") {
+        log("the widget mirror could not register its actor", err);
+      }
+      mirrorReady = false;
+    }
+  };
+
+  const teardownMirror = () => {
+    stopMirror("unloaded");
+    try {
+      if (mirrorReady) {
+        ChromeUtils.unregisterWindowActor(MIRROR_ACTOR);
+      }
+    } catch (err) {
+      // Already gone.
+    }
+    mirrorReady = false;
+  };
+
+  const mirrorBox = () => window.document?.getElementById?.(MIRROR_ID) ?? null;
+
+  const buildMirrorBox = () => {
+    const box = window.document.createElementNS(XHTML_NS, "div");
+    box.id = MIRROR_ID;
+    const canvas = window.document.createElementNS(XHTML_NS, "canvas");
+    box.append(canvas);
+    const progress = window.document.createElementNS(XHTML_NS, "div");
+    progress.className = "pip-tuck-away-mirror-progress";
+    const bar = window.document.createElementNS(XHTML_NS, "span");
+    progress.append(bar);
+    box.append(progress);
+    const controls = window.document.createElementNS(XHTML_NS, "div");
+    controls.className = "pip-tuck-away-mirror-bar";
+    const play = mirrorButton(PLAY_ICON, "Play or pause", () => controlMirror("toggle"));
+    const pip = mirrorButton(PIP_ICON, "Open in a player window", () => openInPip());
+    controls.append(play, pip);
+    box.append(controls);
+    canvas.addEventListener("click", () => controlMirror("toggle"));
+    return box;
+  };
+
+  const mirrorButton = (path, label, onPress) => {
+    const button = window.document.createElementNS(XHTML_NS, "div");
+    button.className = "pip-tuck-away-mirror-button";
+    button.setAttribute("role", "button");
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    const svg = window.document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 18 18");
+    const shape = window.document.createElementNS("http://www.w3.org/2000/svg", "path");
+    shape.setAttribute("d", path);
+    svg.append(shape);
+    button.append(svg);
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onPress();
+    });
+    return button;
+  };
+
+  const mirrorPlayButton = () => mirrorBox()?.querySelector?.(".pip-tuck-away-mirror-button path");
+
+  const showMirrorPlayIcon = () => {
+    const shape = mirrorPlayButton();
+    if (shape) {
+      shape.setAttribute("d", mirrorState.paused ? PLAY_ICON : PAUSE_ICON);
+    }
+  };
+
+  /** The panel sits at the top of the widget's box, at the widget's width. */
+  const placeMirror = () => {
+    const bar = window.document?.querySelector?.(MEDIA_BAR);
+    const card = mediaCards()[0] ?? null;
+    const box = mirrorBox();
+    if (!bar || !card || !box) {
+      return;
+    }
+    const cardRect = card.getBoundingClientRect?.();
+    const barRect = bar.getBoundingClientRect?.();
+    if (!cardRect || !barRect || cardRect.width < 60) {
+      return;
+    }
+    const width = Math.max(80, Math.round(cardRect.width - DOCK_INSET * 2));
+    const limit = Math.round((window.innerHeight || 800) * DOCK_MAX_SHARE);
+    const height = Math.max(45, Math.min(Math.round(width / mirrorAspect), limit));
+    reserveSlot(bar, height, cardRect.height);
+    box.style.width = `${width}px`;
+    box.style.height = `${height}px`;
+    box.style.left = `${Math.round(cardRect.left - barRect.left + DOCK_INSET)}px`;
+  };
+
+  const drawMirrorFrame = (frame) => {
+    const box = mirrorBox();
+    const canvas = box?.firstElementChild;
+    if (!box || !canvas || !frame?.buf) {
+      return;
+    }
+    if (canvas.width !== frame.width || canvas.height !== frame.height) {
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      mirrorContext = null;
+    }
+    if (!mirrorContext) {
+      mirrorContext = canvas.getContext("2d", { alpha: false });
+    }
+    try {
+      mirrorContext.putImageData(
+        new ImageData(new Uint8ClampedArray(frame.buf), frame.width, frame.height),
+        0,
+        0
+      );
+    } catch (err) {
+      log("a mirrored frame could not be drawn", err);
+    }
+  };
+
+  const showMirrorState = () => {
+    showMirrorPlayIcon();
+    const bar = mirrorBox()?.querySelector?.(".pip-tuck-away-mirror-progress span");
+    if (!bar) {
+      return;
+    }
+    const share =
+      mirrorState.duration > 0 ? Math.min(1, mirrorState.time / mirrorState.duration) : 0;
+    bar.style.width = `${Math.round(share * 100)}%`;
+    mirrorBox()?.toggleAttribute?.("paused", !!mirrorState.paused);
+  };
+
+  const controlMirror = (action, value) => {
+    try {
+      mirrorActor?.sendAsyncMessage?.("PipMirror:Control", { action, value });
+    } catch (err) {
+      log("the mirrored video did not take a command", err);
+    }
+  };
+
+  /** A real player for the tab being mirrored, asked for the way the browser asks. */
+  const openInPip = () => {
+    const browser = mirrorBrowser ?? window.gBrowser?.selectedBrowser;
+    if (!browser) {
+      return;
+    }
+    forcedPip.add(browser);
+    heldRequest = null;
+    stopMirror("asked for a player");
+    askForPlayer(browser);
+  };
+
+  const startMirror = (browser) => {
+    if (!mirrorReady || !browser) {
+      return false;
+    }
+    const bar = window.document?.querySelector?.(MEDIA_BAR);
+    if (!bar) {
+      return false;
+    }
+    stopMirror("another video");
+    let actor = null;
+    try {
+      actor = browser.browsingContext?.currentWindowGlobal?.getActor(MIRROR_ACTOR);
+    } catch (err) {
+      actor = null;
+    }
+    if (!actor) {
+      return false;
+    }
+    const box = buildMirrorBox();
+    bar.append(box);
+    mirrorActor = actor;
+    mirrorBrowser = browser;
+    mirrorContext = null;
+    mirrorState = { paused: false, time: 0, duration: 0 };
+    placeMirror();
+    showMirrorState();
+    try {
+      actor.sendAsyncMessage("PipMirror:Start", {});
+    } catch (err) {
+      log("the mirror could not be asked to start", err);
+      stopMirror("start failed");
+      return false;
+    }
+    trace("mirror: the widget shows the video, no player window opened");
+    return true;
+  };
+
+  const stopMirror = (reason = "") => {
+    const had = !!mirrorActor;
+    if (had) {
+      try {
+        mirrorActor.sendAsyncMessage("PipMirror:Stop", {});
+      } catch (err) {
+        // The tab is gone; there is nothing left to stop.
+      }
+    }
+    mirrorActor = null;
+    mirrorBrowser = null;
+    mirrorContext = null;
+    const box = mirrorBox();
+    if (box) {
+      box.remove();
+    }
+    if (reserveBase !== null) {
+      releaseReserve();
+    }
+    if (had && reason) {
+      trace(`mirror: stopped (${reason})`);
+    }
+  };
+
+  const mirroring = () => !!mirrorActor;
+
+  /** Hand the request the mirror stood in for to the platform, and dock it. */
+  const fallBackToPlayer = (why) => {
+    const held = heldRequest;
+    heldRequest = null;
+    stopMirror("falling back");
+    if (!held) {
+      return;
+    }
+    trace(`mirror: falling back to a player window (${why})`);
+    Promise.resolve(trueOriginal?.(held.wgp, held.videoData)).catch((err) =>
+      log("the player the mirror fell back to did not open", err)
+    );
+  };
+
+  /**
+   * The controller the parent actor talks to. It lives on the window so a second
+   * browser window gets its own mirror and neither can draw into the other.
+   */
+  window.PipMirror = {
+    mirrorStarted(id, data, actor) {
+      if (data?.encrypted) {
+        fallBackToPlayer("the video is protected, a copy of it would be black");
+        return;
+      }
+      if (id !== mirrorBrowser?.browsingContext?.id) {
+        return;
+      }
+      mirrorActor = actor ?? mirrorActor;
+      if (data?.width && data?.height) {
+        mirrorAspect = data.width / data.height;
+        placeMirror();
+      }
+      mirrorState = {
+        paused: !!data?.paused,
+        time: data?.time ?? 0,
+        duration: data?.duration ?? 0,
+      };
+      showMirrorState();
+    },
+    mirrorFrame(id, frame) {
+      if (id !== mirrorBrowser?.browsingContext?.id) {
+        return;
+      }
+      drawMirrorFrame(frame);
+      if (frame) {
+        mirrorState = {
+          paused: !!frame.paused,
+          time: frame.time ?? mirrorState.time,
+          duration: frame.duration ?? mirrorState.duration,
+        };
+        showMirrorState();
+      }
+    },
+    mirrorState(id, state) {
+      if (id !== mirrorBrowser?.browsingContext?.id) {
+        return;
+      }
+      mirrorState = { ...mirrorState, ...state };
+      showMirrorState();
+    },
+    mirrorUnavailable(id, reason) {
+      if (id !== mirrorBrowser?.browsingContext?.id) {
+        return;
+      }
+      fallBackToPlayer(reason);
+    },
+    mirrorStopped(id) {
+      if (id !== mirrorBrowser?.browsingContext?.id) {
+        return;
+      }
+      // The video ended or went away: the widget has nothing to show.
+      stopMirror("the video stopped");
+    },
+  };
+
+  /**
+   * Whether this request should become a widget mirror rather than a player.
+   *
+   * Only while this window is the one being looked at, and only when the mirror
+   * is possible at all. Anything else, including every request made while the
+   * browser is in the background, goes to the platform untouched, which is what
+   * keeps the browser's own picture-in-picture standard.
+   */
+  const shouldMirror = (browser) => {
+    if (!mirrorReady || !browser) {
+      return false;
+    }
+    if (!pref(WIDGET_PREF, true)) {
+      return false;
+    }
+    if (forcedPip.has(browser)) {
+      return false;
+    }
+    let active = null;
+    try {
+      active = Services.focus?.activeWindow ?? null;
+    } catch (err) {
+      return false;
+    }
+    return active === window;
+  };
+
   const installPipHook = () => {
     const api = pipApi();
     if (!api || api.handlePictureInPictureRequest.__pipTuckAway) {
@@ -694,6 +1103,14 @@
       const browser = browserOf(wgp);
       if (fromTabSwitch && browser) {
         autoPipped.add(browser);
+      }
+      if (shouldMirror(browser) && startMirror(browser)) {
+        // The widget shows this video and no player window is opened, so the
+        // browser's own picture-in-picture is never in use while it is in front.
+        // The request is kept: if the copy turns out to be impossible the
+        // platform still gets it, and a player opens as it always did.
+        heldRequest = { wgp, videoData, browser };
+        return true;
       }
       trace(
         `request: tabSwitch=${fromTabSwitch} focus=${requestingWindowFocused(wgp)} ` +
@@ -737,34 +1154,47 @@
    * handler skips the selected tab on purpose. Ask the browser's own launcher
    * for that tab, which is the same toggle the platform uses.
    */
-  const requestFromSelectedTab = () => {
-    if (!pref(INLINE_PREF, false)) {
-      return;
-    }
+  const askForPlayer = (browser) => {
     if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
-      return;
+      return false;
     }
     if (Date.now() < requestCooldownUntil) {
-      return;
+      return false;
+    }
+    if (!browser || browser.audioMuted) {
+      return false;
     }
     requestCooldownUntil = Date.now() + REQUEST_COOLDOWN;
     try {
-      const browser = window.gBrowser?.selectedBrowser;
-      if (!browser || browser.audioMuted) {
-        return;
-      }
       const actor = browser.browsingContext?.currentWindowGlobal?.getActor(
         "PictureInPictureLauncher"
       );
       if (!actor) {
-        return;
+        return false;
       }
       actor.sendAsyncMessage?.("PictureInPicture:AutoToggle");
-      trace("asked the selected tab for a player");
+      trace("asked a tab for its own player");
       watchFloated();
+      return true;
     } catch (err) {
       log("could not ask for a player on leaving Zen", err);
+      return false;
     }
+  };
+
+  /**
+   * The tab in front, asked for a player. The platform only pips a tab that got
+   * hidden, so this covers the case of leaving Zen while the video's own tab is
+   * the one being looked at, and it is also how a mirrored video becomes a
+   * standard player window once the browser is in the background.
+   */
+  const requestFromSelectedTab = (browser = null, wanted = false) => {
+    // `wanted` is for a video the widget was showing: leaving the browser always
+    // hands it to the standard player, whatever the pop-out setting says.
+    if (!wanted && !pref(INLINE_PREF, false)) {
+      return;
+    }
+    askForPlayer(browser ?? window.gBrowser?.selectedBrowser);
   };
 
   /**
@@ -799,6 +1229,16 @@
 
   /** The window lost focus: ask the tab in front for a player, once. */
   const onLeftZen = () => {
+    // Outside the browser the video is picture-in-picture again, and the standard
+    // one: the mirror stops and the platform's own player opens for that tab,
+    // with its remembered size, place and edge untouched.
+    if (mirrorBrowser) {
+      const browser = mirrorBrowser;
+      lastMirrored = browser;
+      stopMirror("the browser went to the background");
+      requestFromSelectedTab(browser, true);
+      return;
+    }
     if (floatedWindow && !floatedWindow.closed) {
       return;
     }
@@ -963,6 +1403,13 @@
     // Coming back to Zen with the player's own tab in front folds that player too,
     // which is the same rule the tab strip applies.
     closeForForegroundTab();
+    // A player the platform opened while the browser was in the background gives
+    // way to the widget again: the video is in another tab, so it is mirrored.
+    const previous = lastMirrored;
+    lastMirrored = null;
+    if (previous && !previous.closed && !isForegroundTab(previous)) {
+      setTimeout(() => startMirror(previous), FOLD_DELAY + 40);
+    }
     const win = floatedWindow;
     if (!win || win.closed) {
       floatedWindow = null;
@@ -987,6 +1434,7 @@
     }, FOLD_DELAY);
   };
 
+  setupMirror();
   installPipHook();
   startCardWatch();
   if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
@@ -1011,6 +1459,7 @@
 
   const unload = () => {
     stopDockLoop();
+    teardownMirror();
     releaseReserve();
     if (cardWatchTimer) {
       clearInterval(cardWatchTimer);
