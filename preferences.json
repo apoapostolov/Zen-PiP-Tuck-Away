@@ -51,6 +51,12 @@
     ]
   },
   {
+    "property": "pip-tuck-away.drag-tuck",
+    "label": "Tuck when dragged past the edge",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
     "property": "pip-tuck-away.shortcut",
     "label": "Toggle with **Ctrl+Shift+T**",
     "type": "checkbox",

@@ -19,6 +19,7 @@
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
   const PREF_HOVER_PEEK = "pip-tuck-away.hover-peek";
   const PREF_AUTO_TUCK = "pip-tuck-away.auto-tuck";
+  const PREF_DRAG_TUCK = "pip-tuck-away.drag-tuck";
 
   const SLIVER = 24; // px of window left on screen while tucked
   const MARGIN = 16; // px kept from the screen edge when the window is out
@@ -36,6 +37,8 @@
   const EDGE_BAND = 12; // px from the screen edge where :hover is not trustworthy
   const REVEAL_COOLDOWN = 250; // after a retract, no new reveal at once
   const BARE_ATTR = "pip-tuck-away-bare";
+  const ARM_ATTR = "pip-armed"; // an edge the player is already hanging over
+  const ARM_POLL = 200; // ms between checks for a window dragged past an edge
   const DRIFT_PX = 3; // movement by anyone else that counts as a drag
 
   const root = document.documentElement;
@@ -94,6 +97,9 @@
   let tuckedTimer = null;
   let reopenAfter = 0;
   let controlsTimer = null;
+  let armedSide = null; // the edge a drag has hooked onto, if any
+  let armedDepth = 0; // how far past that edge the player is
+  let armTimer = null;
   let bare = false;
   /** Screen coordinates of the pointer at its last event, so window moves cannot invalidate them. */
   let pointer = { x: 0, y: 0, at: 0 };
@@ -187,6 +193,104 @@
       return gap.bottom + TOP_BIAS < gap.top ? "bottom" : "top";
     }
     return gap.left <= gap.right ? "left" : "right";
+  };
+
+  /**
+   * Tuck by drag: a player dragged so that part of it is past a screen edge has
+   * already committed to that edge, and moving the pointer off the player
+   * completes the gesture. The window is watched rather than the drag, because
+   * a window drag belongs to the window manager and reports nothing to the
+   * page; what can be read is where the window ended up.
+   */
+  const hungOver = () => {
+    if (!pref(PREF_DRAG_TUCK, true) || state !== "free" || document.fullscreenElement) {
+      return null;
+    }
+    const b = screenBox();
+    const w = W();
+    const h = H();
+    if (!w || !h) {
+      return null;
+    }
+    const over = {
+      right: window.screenX + w - b.right,
+      top: b.top - window.screenY,
+      left: b.left - window.screenX,
+      bottom: window.screenY + h - b.bottom,
+    };
+    let side = null;
+    let depth = OVERHANG;
+    for (const name of SIDES) {
+      if (over[name] >= depth) {
+        side = name;
+        depth = over[name];
+      }
+    }
+    return side ? { side, depth } : null;
+  };
+
+  /** Draw the indicator where the screen edge is, not where the window ends. */
+  const placeArm = (armed) => {
+    const arm = document.getElementById(ARM_ID);
+    if (!arm?.style) {
+      return;
+    }
+    try {
+      for (const name of SIDES) {
+        arm.style.removeProperty(name);
+      }
+      if (armed) {
+        arm.style.setProperty(armed.side, `${Math.round(armed.depth)}px`);
+      }
+    } catch (err) {
+      log("could not place the tuck indicator", err);
+    }
+  };
+
+  const setArmed = (armed) => {
+    const side = armed?.side ?? null;
+    const changed = side !== armedSide || (side && armed?.depth !== armedDepth);
+    armedSide = side;
+    armedDepth = armed?.depth ?? 0;
+    if (!changed) {
+      return;
+    }
+    if (side) {
+      root.setAttribute(ARM_ATTR, side);
+    } else {
+      root.removeAttribute(ARM_ATTR);
+    }
+    ensureBadge();
+    placeArm(armed);
+  };
+
+  // How long a pointer reading is trusted to say where the pointer still is.
+  // A drag reports constantly while it is over the window, so a couple of
+  // seconds is generous for the moment just after a release.
+  const POINTER_TRUST = 2000;
+
+  /** The pointer is not over the player any more, as far as we last saw it. */
+  const pointerOutside = () => {
+    if (!pointer.at || Date.now() - pointer.at > POINTER_TRUST) {
+      return false;
+    }
+    return (
+      pointer.x < window.screenX ||
+      pointer.y < window.screenY ||
+      pointer.x > window.screenX + W() ||
+      pointer.y > window.screenY + H()
+    );
+  };
+
+  const watchArmed = () => {
+    const armed = hungOver();
+    setArmed(armed);
+    // A drag that ends outside the player leaves no mouseleave behind: the
+    // window simply stopped being under the pointer. That is still the gesture.
+    if (armed && pointerOutside()) {
+      setArmed(null);
+      tuck(armed.side);
+    }
   };
 
   /**
@@ -335,6 +439,7 @@
     if (document.fullscreenElement) {
       return false;
     }
+    setArmed(null);
     if (state !== "tucked") {
       home = { x: window.screenX, y: window.screenY };
       spot = null;
@@ -353,6 +458,7 @@
     if (state !== "tucked") {
       return false;
     }
+    setArmed(null);
     stopPeek();
     state = "free";
     spot = null;
@@ -618,6 +724,14 @@
   };
 
   const onMouseLeave = () => {
+    // Tuck by drag first: the pointer leaving the player is the second half of
+    // that gesture, and it has nothing to do with a peek.
+    if (!peeked && armedSide) {
+      const side = armedSide;
+      setArmed(null);
+      tuck(side);
+      return;
+    }
     if (!peeked) {
       return;
     }
@@ -1243,6 +1357,7 @@
   const CONTROLS_ATTR = "pip-controls";
   const CONTROLS_HOLD = 2600; // ms the controls stay after a press asks for them
   const BADGE_ID = "pip-tuck-away-badge";
+  const ARM_ID = "pip-tuck-away-arm";
 
   const ensureTuckLook = () => loadSheet();
 
@@ -1268,19 +1383,37 @@
     return badge;
   };
 
+  const buildArm = () => {
+    // A line on the edge the player is hanging over, so a drag shows what it
+    // is about to do before the pointer leaves.
+    const arm = document.createElementNS(XHTML_NS, "div");
+    arm.id = ARM_ID;
+    return arm;
+  };
+
   const ensureBadge = () => {
     ensureTuckLook();
-    if (document.getElementById(BADGE_ID)) {
-      return;
-    }
+    const parent = document.body ?? document.documentElement;
     try {
-      (document.body ?? document.documentElement).appendChild(buildBadge());
+      if (!document.getElementById(BADGE_ID)) {
+        parent.appendChild(buildBadge());
+      }
+      if (!document.getElementById(ARM_ID)) {
+        parent.appendChild(buildArm());
+      }
     } catch (err) {
       log("could not build the tucked strip badge", err);
     }
   };
 
   ensureBadge();
+
+  // One timer for the life of the window: a size read and four subtractions
+  // every 200ms, which is what notices a player dragged past an edge.
+  if (!armTimer) {
+    armTimer = setInterval(watchArmed, ARM_POLL);
+  }
+  watchArmed();
 
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
@@ -1306,6 +1439,11 @@
       clearInterval(tuckedTimer);
       tuckedTimer = null;
     }
+    if (armTimer) {
+      clearInterval(armTimer);
+      armTimer = null;
+    }
+    root.removeAttribute(ARM_ATTR);
     for (const id of settleTimers) {
       clearTimeout(id);
     }
@@ -1335,6 +1473,7 @@
       }
       hideControlLayer(false);
       document.getElementById(BADGE_ID)?.remove();
+      document.getElementById(ARM_ID)?.remove();
       root.removeAttribute(BARE_ATTR);
       document.getElementById(OVERLAY_ID)?.remove();
       document.getElementById(PICKER_ID)?.remove();

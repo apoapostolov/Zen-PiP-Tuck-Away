@@ -21,6 +21,7 @@ The mod adds one section to its settings dialog in Sine.
 | Tuck away on right click | on | Right-clicking the player toggles tucked and untucked |
 | Tuck Control Overlay | on | Shows the tuck strip on the player, with an arrow and the words Tuck Away |
 | Tuck Direction | Smart | Which edge the strip tucks into: Smart, Right, Top, Left or Bottom |
+| Tuck when dragged past the edge | on | Drag the player so part of it is past a screen edge, then move the pointer off it to tuck that way |
 | Toggle with Ctrl+Shift+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
 | Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
@@ -41,6 +42,12 @@ Across that strip sits a small badge with a chevron pointing back out, on a fain
 ## Where the player opens
 
 The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, written when the player closes, and uses the place the player came from whenever it closes while tucked. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
+
+## Tucking by drag
+
+Drag the player so that any part of it is past a screen edge and the mod marks that edge with a thin line, placed on the screen edge itself rather than on the window's off-screen end. Move the pointer off the player and it tucks that way. A drag that ends with the pointer already past the player completes the same way, because the window simply stopped being under the pointer. The gesture reads the window's position rather than the drag itself, since a window drag belongs to the window manager and reports nothing to the page.
+
+The mark clears the moment the player is back fully on screen, so a window that is merely parked near an edge does nothing. Only the deepest overhang counts when two edges are involved, and the switch turns the whole gesture off.
 
 ## The tuck strip
 

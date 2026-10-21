@@ -315,6 +315,50 @@
   filter: none !important;
 }
 
+/* ---------- tuck by drag: the edge the player is hanging over ---------- */
+
+#pip-tuck-away-arm {
+  position: fixed;
+  z-index: 36;
+  display: none;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.4);
+  -moz-window-dragging: no-drag;
+}
+
+:root[pip-armed] #pip-tuck-away-arm {
+  display: block;
+}
+
+:root[pip-armed="right"] #pip-tuck-away-arm {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 3px;
+}
+
+:root[pip-armed="left"] #pip-tuck-away-arm {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+}
+
+:root[pip-armed="top"] #pip-tuck-away-arm {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+}
+
+:root[pip-armed="bottom"] #pip-tuck-away-arm {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+}
+
 /* ---------- Zia's own tuck button -------------------------------------- */
 
 /* Zia hides the button with display:none, and with an !important rule of its
