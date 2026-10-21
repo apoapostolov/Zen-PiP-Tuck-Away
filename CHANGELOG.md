@@ -1,29 +1,14 @@
 # Changelog
 
-## 0.2.2
-
-- Hides Zia's tuck button while `zia.pip.tuck` is false. Zia styles every pill with `display: inline-flex`, so switching its own switch off left the button in the player as a second, competing control.
-- The takeover warning is now one-shot and triggers on evidence: it fires only when Zia's button is actually present in the player and Zia's tuck is on or unset.
-- The injected hide rule is removed again when the mod unloads.
-
-## 0.2.1
-
-- Coexistence with Zia, which tucks picture-in-picture too. The mod now warns once in the Browser Console when `zia.pip.tuck` is still enabled, naming the preference that hands the feature over.
-- Right-clicks inside Zia's own player controls are passed through to Zia instead of toggling this mod's tuck, so Zia's edge picker keeps working.
-- Documented the takeover: no shared attributes and no writes to Zia's preferences.
-
-## 0.2.0
-
-- New setting: Auto tuck on PiP switch. When on, a new player window is tucked before it is shown, so a video goes straight to the strip instead of appearing in its usual place. Off by default.
-- The player half now attaches before the player document finishes loading when auto tuck is on, and re-applies the tucked position over the first 320ms so the browser's own position restore cannot undo it.
-- Untucking after an auto tuck lands the player on the screen edge it came from, because no reliable "before" position exists that early.
-
 ## 0.1.0
 
-First release.
+First release. Everything below landed before the first tagged version, so it
+all belongs to this one.
 
 - Right-clicking the picture-in-picture player tucks it into the nearest screen edge, and right-clicking again brings it back.
 - `Ctrl+Shift+T` toggles tucked and untucked from the browser window and from the player window. The chord is passed through to undo-close-tab while no player is open.
-- Optional hover peek: hovering the tucked strip slides the player fully into view until the pointer leaves the video.
-- Settings section with the right-click toggle, the shortcut toggle, and the hover peek switch (off by default).
+- Optional hover peek: hovering the tucked strip slides the player fully into view until the pointer leaves the video. Off by default.
+- Auto tuck on PiP switch: a new player opens already tucked, attaching before the player document finishes loading and re-applying the tucked position over the first 320ms so the browser's own position restore cannot undo it. Off by default.
+- Zia handover. This mod writes nothing itself, but hides Zia's tuck button while `zia.pip.tuck` is false, warns once when that button is present and Zia's tuck is on or unset, and leaves right-clicks inside Zia's controls to Zia.
+- Settings section with four switches and inline notes.
 - The player keeps its size while tucking and returns with a 16px margin inside the screen.
