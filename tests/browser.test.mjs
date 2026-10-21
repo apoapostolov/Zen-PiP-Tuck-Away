@@ -195,8 +195,8 @@ function mk(prefsIn = {}, opts = {}) {
     addEventListener(type, fn) {
       (this._events[type] ||= []).push(fn);
     },
-    fire(type) {
-      for (const fn of [...(this._events[type] || [])]) fn({ type, target: {} });
+    fire(type, target = {}) {
+      for (const fn of [...(this._events[type] || [])]) fn({ type, target });
     },
   };
   const deferred = [];
@@ -396,7 +396,10 @@ function mk(prefsIn = {}, opts = {}) {
       },
       focus: {
         get activeWindow() {
-          // Another application in front, or this window not focused at all.
+          // A player window of ours, another application, or nothing at all.
+          if (opts.frontWithApp === "player") {
+            return pipWindows[0] ?? windows[0] ?? null;
+          }
           return opts.frontWithApp === false || focused === false ? null : window;
         },
       },
@@ -1212,6 +1215,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   const wgp = wgpFor(false, { selected: false, bcId: 13 });
   await t.pipApi().handlePictureInPictureRequest(wgp, {});
   await tick();
+  t.setFront(false); // the whole application goes behind something else
   t.emit("deactivate");
   await tick();
   check("the widget stopped copying", mirrorActor.sent.map((m) => m.name).includes("PipMirror:Stop"), true);
@@ -1231,6 +1235,228 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   await tick();
   check("the widget stopped copying", mirrorActor.sent.map((m) => m.name).includes("PipMirror:Stop"), true);
   check("and the panel is gone", t.mirror(), null);
+}
+
+// 31. a paused video still shows in the widget when its tab is left
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const aActor = { sent: [], sendAsyncMessage(name, data) { aActor.sent.push({ name, data }); } };
+  const A = wgpFor(false, { selected: true, bcId: 41, actor: aActor });
+  t.select(A.browser);
+  t.tabStrip.fire("TabSelect"); // the mod knows which tab was in front
+  const B = wgpFor(false, { selected: false, bcId: 42 });
+  t.select(B.browser);
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  check("the tab that was left is asked for its video", aActor.sent.map((m) => m.name), ["PipMirror:Start"]);
+  t.controller().mirrorStarted(41, { width: 1280, height: 720, paused: true }, aActor);
+  t.controller().mirrorFrame(41, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: true });
+  check("the widget shows it", t.mirror()?.hasAttribute("waiting"), false);
+  check("and says it is paused", t.mirror().querySelector(".pip-tuck-away-mirror-button path").getAttribute("d"), "M4 2l12 8-12 8z");
+}
+
+// 31b. a tab with nothing to show leaves the panel exactly as it was
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const blankActor = { sent: [], sendAsyncMessage(name) { blankActor.sent.push({ name }); } };
+  const B = wgpFor(false, { selected: true, bcId: 52, actor: blankActor });
+  t.select(B.browser);
+  t.tabStrip.fire("TabSelect");
+  const A = wgpFor(false, { selected: false, bcId: 51 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(51, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(51, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  check("the widget shows the video", t.mirror()?.hasAttribute("waiting"), false);
+  const C = wgpFor(false, { selected: false, bcId: 53 });
+  t.select(C.browser);
+  t.tabStrip.fire("TabSelect"); // leaving the blank tab, which is asked
+  await tick();
+  check("the blank tab was asked", blankActor.sent.map((m) => m.name), ["PipMirror:Start"]);
+  t.controller().mirrorUnavailable(52, "no video is playing");
+  check("and the panel kept the video it had", t.mirror()?.hasAttribute("waiting"), false);
+  check("which was never stopped", mirrorActor.sent.map((m) => m.name), ["PipMirror:Start"]);
+}
+
+// 31c. a tab that does have a video takes the panel's place
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const otherActor = { sent: [], sendAsyncMessage(name) { otherActor.sent.push({ name }); } };
+  const B = wgpFor(false, { selected: true, bcId: 62, actor: otherActor });
+  t.select(B.browser);
+  t.tabStrip.fire("TabSelect");
+  const A = wgpFor(false, { selected: false, bcId: 61 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(61, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(61, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  const C = wgpFor(false, { selected: false, bcId: 63 });
+  t.select(C.browser);
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  t.controller().mirrorStarted(62, { width: 1280, height: 720 }, otherActor);
+  check("the tab the panel left stops copying", mirrorActor.sent.map((m) => m.name), ["PipMirror:Start", "PipMirror:Stop"]);
+  t.controller().mirrorFrame(62, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  check("and the new picture is the one drawn", t.mirror().firstElementChild.painted.width, 2);
+}
+
+// 31c2. arriving at a tab that was only asked keeps its video out of the widget
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const otherActor = { sent: [], sendAsyncMessage(name) { otherActor.sent.push({ name }); } };
+  const B = wgpFor(false, { selected: true, bcId: 65, actor: otherActor });
+  t.select(B.browser);
+  t.tabStrip.fire("TabSelect");
+  const A = wgpFor(false, { selected: false, bcId: 64 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(64, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(64, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  const cActor = { sent: [], sendAsyncMessage(name) { cActor.sent.push({ name }); } };
+  const C = wgpFor(false, { selected: false, bcId: 66, actor: cActor });
+  t.select(C.browser);
+  t.tabStrip.fire("TabSelect"); // leaving B: B is asked, and has not answered yet
+  await tick();
+  t.select(B.browser); // and the user arrives at B before it does
+  t.tabStrip.fire("TabSelect");
+  check("the tab that came forward is let go of", otherActor.sent.map((m) => m.name), ["PipMirror:Start", "PipMirror:Stop"]);
+  t.controller().mirrorStarted(65, { width: 1280, height: 720 }, otherActor);
+  t.controller().mirrorFrame(65, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  check("the tab left after it was asked in turn", cActor.sent.map((m) => m.name), ["PipMirror:Start"]);
+  check("and the video on screen is still the one that was playing", mirrorActor.sent.map((m) => m.name), ["PipMirror:Start"]);
+  check("shown, not waiting", t.mirror()?.hasAttribute("waiting"), false);
+}
+
+// 31d. a protected video leaves the panel alone rather than blackening it
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const lockedActor = { sent: [], sendAsyncMessage(name) { lockedActor.sent.push({ name }); } };
+  const B = wgpFor(false, { selected: true, bcId: 72, actor: lockedActor });
+  t.select(B.browser);
+  t.tabStrip.fire("TabSelect");
+  const A = wgpFor(false, { selected: false, bcId: 71 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(71, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(71, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  const C = wgpFor(false, { selected: false, bcId: 73 });
+  t.select(C.browser);
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  t.controller().mirrorStarted(72, { encrypted: true }, lockedActor);
+  check("the panel keeps the video it had", t.mirror()?.hasAttribute("waiting"), false);
+  check("no player was opened for it", t.pipCalls.length, 0);
+}
+
+// 31e. leaving the application with a paused video opens nothing at all
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const A = wgpFor(false, { selected: false, bcId: 81 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(81, { width: 1280, height: 720, paused: true }, mirrorActor);
+  t.controller().mirrorFrame(81, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: true });
+  t.setFront(false);
+  t.emit("deactivate");
+  await tick();
+  check("the panel goes", t.mirror(), null);
+  check("and nothing floats over the other application", A.launcher, []);
+}
+
+// 31f. leaving the application with a playing video hands it to the player
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  t.windows.length = 0;
+  const A = wgpFor(false, { selected: false, bcId: 91 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(91, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(91, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  t.setFront(false);
+  t.emit("deactivate");
+  await tick();
+  check("the tab is asked for its own player", A.launcher, ["PictureInPicture:AutoToggle"]);
+}
+
+// 31g. coming back on another tab folds that player and shows the widget again
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  t.windows.length = 0;
+  const A = wgpFor(false, { selected: false, bcId: 101 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(101, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(101, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  t.setFront(false);
+  t.emit("deactivate");
+  await tick();
+  // the player the platform opened for that tab, while the browser was away
+  const player = t.pipWindow();
+  t.windows.push(player);
+  t.pipWindows.push(player);
+  t.weakWinToBrowser.set(player, A.browser);
+  const other = wgpFor(false, { selected: true, bcId: 102 });
+  t.select(other.browser);
+  t.setFront(true);
+  t.emit("activate");
+  await tick();
+  check("the player is folded away", t.closedWindows.includes(player), true);
+  check("the widget asks for the video again", mirrorActor.sent.map((m) => m.name), ["PipMirror:Start", "PipMirror:Stop", "PipMirror:Start"]);
+  t.controller().mirrorStarted(101, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(101, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  check("and shows it", t.mirror()?.hasAttribute("waiting"), false);
+}
+
+// 31h. coming back on the video's own tab folds the player and shows nothing
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  t.windows.length = 0;
+  const A = wgpFor(false, { selected: false, bcId: 111 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(111, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(111, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  t.setFront(false);
+  t.emit("deactivate");
+  await tick();
+  const player = t.pipWindow();
+  t.windows.push(player);
+  t.pipWindows.push(player);
+  t.weakWinToBrowser.set(player, A.browser);
+  t.select(A.browser);
+  t.setFront(true);
+  t.emit("activate");
+  await tick();
+  check("the player is folded away", player.closed, true);
+  check("and the video is back in its page", t.mirror(), null);
+}
+
+// 31i. a player window taking focus is not the browser going away
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const A = wgpFor(false, { selected: false, bcId: 121 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(121, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(121, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  t.setFront("player");
+  t.emit("deactivate");
+  await tick();
+  check("the panel stays where it is", t.mirror()?.hasAttribute("waiting"), false);
+  check("and nothing was stopped", mirrorActor.sent.map((m) => m.name), ["PipMirror:Start"]);
+}
+
+// 31j. a tab that is closed takes its panel with it
+{
+  mirrorActor.sent.length = 0;
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const A = wgpFor(false, { selected: false, bcId: 131 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(131, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(131, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  t.tabStrip.fire("TabClose", { linkedBrowser: A.browser });
+  check("the panel is gone", t.mirror(), null);
+  check("and the room went with it", t.barStyle.props["--zen-media-collapsed-height"], undefined);
 }
 
 // 22. unload puts the original handler back

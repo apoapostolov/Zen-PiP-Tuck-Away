@@ -168,9 +168,44 @@
     // The platform's own handler runs on the same event; letting it go first
     // means this is only needed when its registration is missing.
     setTimeout(closeForForegroundTab, 0);
+    const now = window.gBrowser?.selectedBrowser ?? null;
+    const previous = lastSelected;
+    lastSelected = now;
     // The video is in the page now, so the widget has nothing left to show.
     if (mirrorBrowser && isForegroundTab(mirrorBrowser)) {
       stopMirror("its own tab came forward");
+    }
+    // The same goes for a tab that was only asked a moment ago: arriving at it
+    // before it answered must not put its video in the widget behind its back.
+    if (pendingBrowser && isForegroundTab(pendingBrowser)) {
+      abandonPending("its own tab came forward");
+    }
+    // Leaving a tab shows its video in the widget, playing or paused. The
+    // browser's own request only does this while a video is playing, and a
+    // paused video is still a video the sidebar can show. A tab with nothing to
+    // show answers that way and the panel keeps whatever it already had.
+    if (previous && previous !== now && shouldMirror(previous)) {
+      armMirror(previous);
+    }
+  };
+
+  /** A tab that goes away takes its panel with it, rather than freezing one. */
+  const onTabClose = (event) => {
+    const browser = event?.target?.linkedBrowser ?? null;
+    if (!browser) {
+      return;
+    }
+    if (browser === mirrorBrowser) {
+      stopMirror("its tab was closed");
+    }
+    if (browser === pendingBrowser) {
+      abandonPending("its tab was closed");
+    }
+    if (browser === lastMirrored) {
+      lastMirrored = null;
+    }
+    if (browser === lastSelected) {
+      lastSelected = null;
     }
   };
 
@@ -181,6 +216,7 @@
         return;
       }
       strip.addEventListener("TabSelect", onTabSelect);
+      strip.addEventListener("TabClose", onTabClose);
       strip[KEYS_FLAG] = true;
     } catch (err) {
       log("could not watch the tab strip", err);
@@ -689,20 +725,33 @@
 
   // --------------------------------------------------------------- the mirror
   //
-  // While the browser is in front, a playing video in another tab is shown by
-  // copying its frames into a canvas in the sidebar. No player window is opened
-  // at all, so the browser's own picture-in-picture keeps its remembered size,
-  // its place and its tucked edge, and it is exactly what appears the moment
-  // the browser goes to the background. That is the whole point of the mirror:
-  // the widget shows the video without ever standing in for picture-in-picture.
+  // While the browser is in front, a video in another tab is shown by copying
+  // its frames into a canvas in the sidebar. No player window is opened at all,
+  // so the browser's own picture-in-picture keeps its remembered size, its place
+  // and its tucked edge, and it is exactly what appears the moment the browser
+  // goes to the background. That is the whole point of the mirror: the widget
+  // shows the video without ever standing in for picture-in-picture.
+  //
+  // The panel follows one rule, which covers every way a video can come and go:
+  //
+  //   The widget shows the video of the tab that was in front a moment ago, as
+  //   long as that tab has a video at all. Playing or paused makes no
+  //   difference, because the browser's own request only fires for a video that
+  //   is playing and a paused video is still a video the sidebar can show.
+  //
+  // Everything else follows from it. The video's own tab coming forward ends the
+  // panel, because the video is in the page now. A tab without a video leaves
+  // the panel alone rather than emptying it. Going to another application ends
+  // the panel and hands the video to the platform's own player, which is the
+  // one thing a mirror cannot be: a window that floats over another application.
   //
   // A mirror copies pixels, so protected video comes back black. When the page
-  // reports a media key system the mod hands the request to the platform and
-  // docks the real player instead, which is the path it has always had.
+  // reports a media key system the request is handed to the platform and a real
+  // player opens instead, which is the path this mod has always had.
 
   const MIRROR_ACTOR = "PipMirror";
   const MIRROR_RES = "pip-tuck-away";
-  const MIRROR_VERSION = "1"; // bump when either actor file changes
+  const MIRROR_VERSION = "2"; // bump when either actor file changes
   const MIRROR_ID = "pip-tuck-away-mirror";
   // Long enough for a slow first frame, short enough that a video which cannot
   // be copied is a player window rather than an empty box.
@@ -713,17 +762,28 @@
   const PIP_ICON = "M2 3h14v10H2zM8 8h7v5H8z";
 
   let mirrorReady = false; // the actor registered: the mirror can be used at all
-  let mirrorActor = null; // the parent actor of the tab being mirrored
+  let mirrorActor = null; // the tab whose picture is on screen
   let mirrorBrowser = null;
-  let mirrorCanvas = null;
   let mirrorContext = null;
   let mirrorAspect = 16 / 9;
   let mirrorState = { paused: false, time: 0, duration: 0 };
-  let heldRequest = null; // a request no player was opened for, kept for the fallback
-  let mirrorPainted = false; // a real picture has arrived, so the panel may be shown
+  let mirrorPainted = false; // this tab has sent a picture
+  let boxHasPicture = false; // the canvas holds one, whoever sent it
+  let mirrorTimer = 0; // gives up when the tab on screen sends nothing
   let panelWatch = 0; // the panel is measured with the widget, not once
-  let mirrorPatience = 0; // the timer that gives up when no picture comes
-  let lastMirrored = null; // the tab the widget was showing when the browser lost focus
+  let heldRequest = null; // the request the panel stands in for
+  let lastMirrored = null; // the tab it was showing when the browser lost focus
+  let lastSelected = null; // the tab that was in front before this one
+
+  // A tab that was asked while another one is on screen. It is only believed
+  // once it answers with a video: a tab with nothing to show leaves the panel
+  // exactly as it was, which is why leaving one tab for a blank one cannot empty
+  // the widget.
+  let pendingActor = null;
+  let pendingBrowser = null;
+  let pendingHeld = null;
+  let pendingTimer = 0;
+
   const forcedPip = new WeakSet();
 
   /** The mod's own folder, wherever Sine keeps it, as a resource:// alias. */
@@ -784,14 +844,20 @@
         }
       }
     } catch (err) {
-      if (err?.name !== "NotSupportedError") {
+      if (err?.name === "NotSupportedError") {
+        // A second browser window finds the actor already registered, and the
+        // actor belongs to the application rather than to one window: its
+        // controller is reached through the window the tab lives in.
+        mirrorReady = true;
+      } else {
         log("the widget mirror could not register its actor", err);
+        mirrorReady = false;
       }
-      mirrorReady = false;
     }
   };
 
   const teardownMirror = () => {
+    abandonPending("unloaded");
     stopMirror("unloaded");
     try {
       if (mirrorReady) {
@@ -801,6 +867,35 @@
       // Already gone.
     }
     mirrorReady = false;
+  };
+
+  /** The tab a browsing context belongs to, for matching answers to tabs. */
+  const tabIdOf = (browser) => {
+    try {
+      return browser?.browsingContext?.id ?? null;
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const isPendingTab = (id) => id !== null && id === tabIdOf(pendingBrowser);
+
+  /** Whether this window is the one being looked at. */
+  const browserInFront = () => {
+    try {
+      return Services.focus?.activeWindow === window;
+    } catch (err) {
+      return false;
+    }
+  };
+
+  /** Whether the whole application is behind something else. */
+  const appInBackground = () => {
+    try {
+      return !Services.focus?.activeWindow;
+    } catch (err) {
+      return false;
+    }
   };
 
   const mirrorBox = () => window.document?.getElementById?.(MIRROR_ID) ?? null;
@@ -857,7 +952,7 @@
     }
   };
 
-  /** The panel sits at the top of the widget's box, at the widget's width. */
+  /** The panel sits above the card, at the widget's width. */
   const placeMirror = () => {
     const bar = window.document?.querySelector?.(MEDIA_BAR);
     const card = mediaCards()[0] ?? null;
@@ -913,9 +1008,10 @@
     }
     if (!mirrorPainted) {
       mirrorPainted = true;
-      if (mirrorPatience) {
-        clearTimeout(mirrorPatience);
-        mirrorPatience = 0;
+      boxHasPicture = true;
+      if (mirrorTimer) {
+        clearTimeout(mirrorTimer);
+        mirrorTimer = 0;
       }
       box.removeAttribute("waiting");
       placeMirror();
@@ -953,34 +1049,84 @@
   };
 
   const controlMirror = (action, value) => {
+    const actor = mirrorActor ?? pendingActor;
     try {
-      mirrorActor?.sendAsyncMessage?.("PipMirror:Control", { action, value });
+      actor?.sendAsyncMessage?.("PipMirror:Control", { action, value });
     } catch (err) {
       log("the mirrored video did not take a command", err);
     }
   };
 
-  /** A real player for the tab being mirrored, asked for the way the browser asks. */
-  const openInPip = () => {
-    const browser = mirrorBrowser ?? window.gBrowser?.selectedBrowser;
-    if (!browser) {
-      return;
+  const stopActor = (actor) => {
+    try {
+      actor?.sendAsyncMessage?.("PipMirror:Stop", {});
+    } catch (err) {
+      // The tab is gone; there is nothing left to stop.
     }
-    forcedPip.add(browser);
-    heldRequest = null;
-    stopMirror("asked for a player");
-    askForPlayer(browser);
   };
 
-  const startMirror = (browser) => {
+  /** Hand a request the panel stood in for to the platform, unchanged. */
+  const handToPlatform = (held, why) => {
+    if (!held) {
+      return;
+    }
+    trace(`mirror: falling back to a player window (${why})`);
+    Promise.resolve(trueOriginal?.(held.wgp, held.videoData)).catch((err) =>
+      log("the player the mirror fell back to did not open", err)
+    );
+  };
+
+  const startLivePatience = () => {
+    if (mirrorTimer) {
+      clearTimeout(mirrorTimer);
+    }
+    mirrorTimer = setTimeout(() => {
+      mirrorTimer = 0;
+      if (mirrorPainted) {
+        return;
+      }
+      const held = heldRequest;
+      heldRequest = null;
+      stopMirror("no picture arrived");
+      handToPlatform(held, "no picture arrived");
+    }, MIRROR_PATIENCE);
+  };
+
+  const startPendingPatience = () => {
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+    }
+    pendingTimer = setTimeout(() => {
+      pendingTimer = 0;
+      abandonPending("no picture arrived");
+    }, MIRROR_PATIENCE);
+  };
+
+  /**
+   * Ask a tab to show its video in the widget.
+   *
+   * With nothing on screen it becomes the panel at once, and a tab with no video
+   * simply ends the attempt. With something already on screen it is asked
+   * quietly and only takes the panel's place once it answers with a video, so
+   * switching between tabs that have nothing to show cannot empty the widget.
+   */
+  const armMirror = (browser, held = null) => {
     if (!mirrorReady || !browser) {
       return false;
+    }
+    if (!pref(WIDGET_PREF, true)) {
+      return false;
+    }
+    if (!browserInFront()) {
+      return false;
+    }
+    if (browser === mirrorBrowser || browser === pendingBrowser) {
+      return true;
     }
     const bar = window.document?.querySelector?.(MEDIA_BAR);
     if (!bar) {
       return false;
     }
-    stopMirror("another video");
     let actor = null;
     try {
       actor = browser.browsingContext?.currentWindowGlobal?.getActor(MIRROR_ACTOR);
@@ -990,52 +1136,121 @@
     if (!actor) {
       return false;
     }
-    const box = buildMirrorBox();
-    bar.append(box);
-    startPanelWatch();
-    mirrorActor = actor;
-    mirrorBrowser = browser;
-    mirrorContext = null;
-    mirrorPainted = false;
-    if (mirrorPatience) {
-      clearTimeout(mirrorPatience);
+    if (mirrorActor) {
+      abandonPending("another tab was asked");
+      pendingActor = actor;
+      pendingBrowser = browser;
+      pendingHeld = held;
+      startPendingPatience();
+    } else {
+      mirrorActor = actor;
+      mirrorBrowser = browser;
+      heldRequest = held;
+      mirrorPainted = false;
+      mirrorState = { paused: false, time: 0, duration: 0 };
+      startLivePatience();
     }
-    mirrorPatience = setTimeout(() => {
-      mirrorPatience = 0;
-      if (!mirrorPainted) {
-        fallBackToPlayer("no picture arrived");
-      }
-    }, MIRROR_PATIENCE);
-    mirrorState = { paused: false, time: 0, duration: 0 };
-    showMirrorState();
+    let box = mirrorBox();
+    if (!box) {
+      box = buildMirrorBox();
+      bar.append(box);
+      startPanelWatch();
+    }
+    if (!boxHasPicture) {
+      box.setAttribute("waiting", "");
+    }
     try {
       actor.sendAsyncMessage("PipMirror:Start", {});
     } catch (err) {
-      log("the mirror could not be asked to start", err);
-      stopMirror("start failed");
+      if (mirrorBrowser === browser) {
+        mirrorActor = null;
+        mirrorBrowser = null;
+        heldRequest = null;
+        if (mirrorTimer) {
+          clearTimeout(mirrorTimer);
+          mirrorTimer = 0;
+        }
+        if (!pendingBrowser) {
+          stopPanelWatch();
+          const dead = mirrorBox();
+          if (dead) {
+            dead.remove();
+          }
+        }
+      }
+      abandonPending("the tab did not take the request");
       return false;
     }
-    trace("mirror: the widget shows the video, no player window opened");
+    trace(
+      held
+        ? "mirror: the widget shows the video, no player window opened"
+        : "mirror: asked a tab for its video on a tab change"
+    );
     return true;
   };
 
-  const stopMirror = (reason = "") => {
-    const had = !!mirrorActor;
+  /** The asked tab answered with a video, so it takes the panel's place. */
+  const adoptPending = () => {
+    const oldActor = mirrorActor;
+    mirrorActor = pendingActor;
+    mirrorBrowser = pendingBrowser;
+    heldRequest = pendingHeld ?? heldRequest;
+    pendingActor = null;
+    pendingBrowser = null;
+    pendingHeld = null;
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      pendingTimer = 0;
+    }
+    if (oldActor && oldActor !== mirrorActor) {
+      stopActor(oldActor);
+    }
     mirrorPainted = false;
-    if (mirrorPatience) {
-      clearTimeout(mirrorPatience);
-      mirrorPatience = 0;
+    mirrorState = { paused: false, time: 0, duration: 0 };
+    const box = mirrorBox();
+    if (box && !boxHasPicture) {
+      box.setAttribute("waiting", "");
     }
-    if (had) {
-      try {
-        mirrorActor.sendAsyncMessage("PipMirror:Stop", {});
-      } catch (err) {
-        // The tab is gone; there is nothing left to stop.
-      }
+    startLivePatience();
+    trace("mirror: the panel follows the tab");
+  };
+
+  const abandonPending = (reason = "") => {
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      pendingTimer = 0;
     }
+    const actor = pendingActor;
+    const held = pendingHeld;
+    pendingActor = null;
+    pendingBrowser = null;
+    pendingHeld = null;
+    if (actor) {
+      stopActor(actor);
+    }
+    if (held) {
+      handToPlatform(held, reason || "the copy could not start");
+    }
+  };
+
+  const stopMirror = (reason = "") => {
+    if (mirrorTimer) {
+      clearTimeout(mirrorTimer);
+      mirrorTimer = 0;
+    }
+    // A tab asked while this one was on screen is done with too: the panel it
+    // was waiting to take over no longer exists.
+    abandonPending("the panel was let go");
+    const had = !!mirrorActor;
+    const actor = mirrorActor;
     mirrorActor = null;
     mirrorBrowser = null;
+    mirrorPainted = false;
+    boxHasPicture = false;
     mirrorContext = null;
+    if (actor) {
+      stopActor(actor);
+    }
     stopPanelWatch();
     const box = mirrorBox();
     if (box) {
@@ -1049,20 +1264,26 @@
     }
   };
 
-  const mirroring = () => !!mirrorActor;
+  const mirroring = () => !!mirrorActor || !!pendingActor;
 
-  /** Hand the request the mirror stood in for to the platform, and dock it. */
+  /** Hand the request the panel stood in for to the platform, and let it go. */
   const fallBackToPlayer = (why) => {
     const held = heldRequest;
     heldRequest = null;
     stopMirror("falling back");
-    if (!held) {
+    handToPlatform(held, why);
+  };
+
+  /** A real player for the tab on screen, asked for the way the browser asks. */
+  const openInPip = () => {
+    const browser = mirrorBrowser ?? window.gBrowser?.selectedBrowser;
+    if (!browser) {
       return;
     }
-    trace(`mirror: falling back to a player window (${why})`);
-    Promise.resolve(trueOriginal?.(held.wgp, held.videoData)).catch((err) =>
-      log("the player the mirror fell back to did not open", err)
-    );
+    forcedPip.add(browser);
+    heldRequest = null;
+    stopMirror("asked for a player");
+    askForPlayer(browser);
   };
 
   /**
@@ -1072,13 +1293,18 @@
   window.PipMirror = {
     mirrorStarted(id, data, actor) {
       if (data?.encrypted) {
-        fallBackToPlayer("the video is protected, a copy of it would be black");
+        if (isPendingTab(id)) {
+          abandonPending("the video is protected, a copy of it would be black");
+        } else if (id === tabIdOf(mirrorBrowser)) {
+          fallBackToPlayer("the video is protected, a copy of it would be black");
+        }
         return;
       }
-      if (id !== mirrorBrowser?.browsingContext?.id) {
+      if (isPendingTab(id)) {
+        adoptPending();
+      } else if (id !== tabIdOf(mirrorBrowser)) {
         return;
       }
-      mirrorActor = actor ?? mirrorActor;
       if (data?.width && data?.height) {
         mirrorAspect = data.width / data.height;
       }
@@ -1090,7 +1316,9 @@
       showMirrorState();
     },
     mirrorFrame(id, frame) {
-      if (id !== mirrorBrowser?.browsingContext?.id) {
+      if (isPendingTab(id)) {
+        adoptPending();
+      } else if (id !== tabIdOf(mirrorBrowser)) {
         return;
       }
       drawMirrorFrame(frame);
@@ -1104,20 +1332,30 @@
       }
     },
     mirrorState(id, state) {
-      if (id !== mirrorBrowser?.browsingContext?.id) {
+      if (id !== tabIdOf(mirrorBrowser) && !isPendingTab(id)) {
         return;
       }
       mirrorState = { ...mirrorState, ...state };
       showMirrorState();
     },
     mirrorUnavailable(id, reason) {
-      if (id !== mirrorBrowser?.browsingContext?.id) {
+      if (isPendingTab(id)) {
+        // A tab with nothing to show is not a failure: the panel keeps what it
+        // has, and a panel with nothing keeps nothing.
+        abandonPending(reason);
+        return;
+      }
+      if (id !== tabIdOf(mirrorBrowser)) {
         return;
       }
       fallBackToPlayer(reason);
     },
     mirrorStopped(id) {
-      if (id !== mirrorBrowser?.browsingContext?.id) {
+      if (isPendingTab(id)) {
+        abandonPending("the video stopped");
+        return;
+      }
+      if (id !== tabIdOf(mirrorBrowser)) {
         return;
       }
       // The video ended or went away: the widget has nothing to show.
@@ -1126,7 +1364,7 @@
   };
 
   /**
-   * Whether this request should become a widget mirror rather than a player.
+   * Whether a request should become a widget mirror rather than a player.
    *
    * Only while this window is the one being looked at, and only when the mirror
    * is possible at all. Anything else, including every request made while the
@@ -1143,13 +1381,7 @@
     if (forcedPip.has(browser)) {
       return false;
     }
-    let active = null;
-    try {
-      active = Services.focus?.activeWindow ?? null;
-    } catch (err) {
-      return false;
-    }
-    return active === window;
+    return browserInFront();
   };
 
   const installPipHook = () => {
@@ -1167,14 +1399,12 @@
       if (shouldMirror(browser)) {
         // The widget shows this video and no player window is opened, so the
         // browser's own picture-in-picture is never in use while it is in front.
-        // The request is kept before the mirror starts: if the copy turns out to
-        // be impossible, at once or a moment later, the platform still gets it
-        // and a player opens as it always did.
-        heldRequest = { wgp, videoData, browser };
-        if (startMirror(browser)) {
+        // The request travels with the panel: if the copy turns out to be
+        // impossible, at once or a moment later, the platform still gets it and
+        // a player opens as it always did.
+        if (armMirror(browser, { wgp, videoData, browser })) {
           return true;
         }
-        heldRequest = null;
       }
       trace(
         `request: tabSwitch=${fromTabSwitch} focus=${requestingWindowFocused(wgp)} ` +
@@ -1237,6 +1467,9 @@
         return false;
       }
       actor.sendAsyncMessage?.("PictureInPicture:AutoToggle");
+      // Asked for or not, that player exists because the tab was left, so it is
+      // this mod's to fold away when the tab comes back.
+      autoPipped.add(browser);
       trace("asked a tab for its own player");
       watchFloated();
       return true;
@@ -1294,13 +1527,28 @@
   /** The window lost focus: ask the tab in front for a player, once. */
   const onLeftZen = () => {
     // Outside the browser the video is picture-in-picture again, and the standard
-    // one: the mirror stops and the platform's own player opens for that tab,
+    // one: the panel stops and the platform's own player opens for that tab,
     // with its remembered size, place and edge untouched.
-    if (mirrorBrowser) {
-      const browser = mirrorBrowser;
-      lastMirrored = browser;
-      stopMirror("the browser went to the background");
-      requestFromSelectedTab(browser, true);
+    if (mirrorBrowser || pendingBrowser) {
+      if (!appInBackground()) {
+        // Another window of ours took focus, a player window most of all. The
+        // browser is still the thing being looked at, so the panel stays.
+        return;
+      }
+      const browser = mirrorBrowser ?? null;
+      if (browser) {
+        lastMirrored = browser;
+        // A paused video is not one the platform would ever have pip'd, so it is
+        // left alone: nothing floats over the other application, and the widget
+        // has the video again the moment the browser comes back.
+        const playing = !mirrorState.paused;
+        stopMirror("the browser went to the background");
+        if (playing) {
+          requestFromSelectedTab(browser, true);
+        }
+        return;
+      }
+      abandonPending("the browser went to the background");
       return;
     }
     if (floatedWindow && !floatedWindow.closed) {
@@ -1442,6 +1690,31 @@
     }
   };
 
+  /**
+   * Fold the player that exists because a tab was left, whoever opened it.
+   *
+   * Only a player the platform or this mod produced from that tab is folded: one
+   * the user asked for by hand is theirs and stays where it is.
+   */
+  const foldPlayerFor = (browser) => {
+    const win = playerFor(browser);
+    if (!win) {
+      return;
+    }
+    const api = pipApi();
+    const ours =
+      autoPipped.has(browser) || !!api?.weakAutoPipBrowserToParent?.has?.(browser);
+    if (!ours) {
+      return;
+    }
+    autoPipped.delete(browser);
+    if (floatedWindow === win) {
+      floatedWindow = null;
+    }
+    trace("folding the player for the tab the widget is about to show");
+    closeFloated(win);
+  };
+
   const isForegroundTab = (browser) => {
     try {
       const tabbrowser = browser?.getTabBrowser?.();
@@ -1471,8 +1744,13 @@
     // way to the widget again: the video is in another tab, so it is mirrored.
     const previous = lastMirrored;
     lastMirrored = null;
-    if (previous && !previous.closed && !isForegroundTab(previous)) {
-      setTimeout(() => startMirror(previous), FOLD_DELAY + 40);
+    if (previous && !previous.closed) {
+      // In front, that video belongs in the widget: the player opened for it
+      // while the browser was away is done, and the panel has it again.
+      foldPlayerFor(previous);
+      if (!isForegroundTab(previous)) {
+        armMirror(previous);
+      }
     }
     const win = floatedWindow;
     if (!win || win.closed) {
@@ -1499,6 +1777,7 @@
   };
 
   setupMirror();
+  lastSelected = window.gBrowser?.selectedBrowser ?? null;
   installPipHook();
   startCardWatch();
   if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
@@ -1523,7 +1802,6 @@
 
   const unload = () => {
     stopDockLoop();
-    stopPanelWatch();
     teardownMirror();
     releaseReserve();
     if (cardWatchTimer) {

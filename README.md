@@ -40,17 +40,31 @@ Hovering the strip slides the whole player back into view when the peek setting 
 
 ## The video in the media widget
 
-Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **PiP uses the widget** on, a playing video in another tab is shown in that widget, and no player window is opened at all.
+Zen's media card is a row in the sidebar with a thumbnail, the name, the playtime and the buttons. With **PiP uses the widget** on, a video in another tab is shown in that widget, and no player window is opened at all.
 
 The widget shows a copy of the picture, not a player. A content actor in the page copies the video's frames into a small canvas, which is drawn in the sidebar at the widget's width and the video's own shape, in room made inside the toolbar itself. The video never moves: the page keeps playing it, the page keeps its sound, and nothing is loaded twice. A click on the picture plays or pauses, and the two small buttons that appear on hover do the same and open a real player if you would rather have one.
 
 That is the point of doing it this way. Picture-in-picture is never in use while the browser is in front, so it keeps its own remembered size, its own place and its own tucked edge, and it is exactly what appears the moment you leave the browser. Nothing about it is borrowed, moved or resized by this mod.
 
+### One rule, and every case comes out of it
+
+**The widget shows the video of the tab you just left, as long as that tab has a video at all.** Playing or paused makes no difference, which is where this parts company with the browser's own behaviour: the browser only moves a video into picture-in-picture while it is playing, and a paused video is still a video the sidebar can show.
+
+| What you do | What the widget does |
+| --- | --- |
+| Play a video, then open another tab | Shows the video. No player window is opened |
+| Pause the video, then open another tab | Shows it just the same |
+| Move between tabs that have no video | Keeps what it is showing. It does not empty |
+| Go back to the video's own tab | Lets go: the video is in the page again |
+| Go to another application | Lets go. A playing video becomes the standard player window, a paused one is left alone |
+| Come back to the browser | Folds that player away and shows the video again, unless you came back to the video's own tab |
+| Close the video's tab | The panel goes with it |
+
 Nothing is drawn until a real frame has arrived. Until then the panel is not in the layout at all, so there is no black box standing in for a video and no room taken from the sidebar. If no picture comes within a couple of seconds, the request goes to the platform and a player window opens instead.
 
 Two honest limits:
 
-- **Protected video copies as black.** A frame copy of an encrypted stream cannot be read, so when a page reports a media key system the widget steps aside and a normal player window opens instead, docked where the panel would have been. YouTube, Twitch and most sites are fine; a DRM service is not.
+- **Protected video copies as black.** A frame copy of an encrypted stream cannot be read, so when a page reports a media key system the widget steps aside and a normal player window opens instead, docked where the panel would have been. A tab that turns out to be protected while another tab is already in the widget is left alone rather than blackening the panel. YouTube, Twitch and most sites are fine; a DRM service is not.
 - **A copy costs a little.** Frames are downscaled to 480px on the long edge and sent about twenty times a second, which is nothing on a modern machine but is not free. A paused video sends one frame and then stays quiet.
 
 ## Going back to the tab
