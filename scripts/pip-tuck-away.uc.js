@@ -47,13 +47,24 @@
   const TRACE_MAX = 96 * 1024;
 
   const tracePath = () => {
-    try {
-      const file = Services.dirsvc.get("ProfD", Components.interfaces.nsIFile);
-      file.append("pip-tuck-away-trace.log");
-      return file.path;
-    } catch (err) {
-      return null;
+    for (const make of [
+      () => {
+        const file = Services.dirsvc.get("ProfD", Components.interfaces.nsIFile);
+        file.append("pip-tuck-away-trace.log");
+        return file.path;
+      },
+      () => PathUtils.join(PathUtils.profileDir, "pip-tuck-away-trace.log"),
+    ]) {
+      try {
+        const path = make();
+        if (path) {
+          return path;
+        }
+      } catch (err) {
+        // try the next way of asking for the profile directory
+      }
     }
+    return null;
   };
 
   const trace = (message) => {
@@ -423,10 +434,14 @@
         mediaControlsEnabled() &&
         requestedByTabSwitch(wgp) &&
         requestingWindowFocused(wgp);
+      trace(
+        `request: tabSwitch=${requestedByTabSwitch(wgp)} focus=${requestingWindowFocused(wgp)} ` +
+          `inline=${pref(INLINE_PREF, false)} controls=${mediaControlsEnabled()} card=${mediaCardState()} ` +
+          `=> ${keepInline ? "held" : "passed to the platform"}`
+      );
       if (keepInline) {
         suppressed = { wgp, videoData };
         lastRequest = suppressed;
-        trace(`held back a tab-switch request; card is ${mediaCardState()}`);
         watchMediaCard();
         return undefined;
       }
@@ -649,6 +664,11 @@
   };
 
   installPipHook();
+
+  trace(
+    `browser half loaded; inline=${pref(INLINE_PREF, false)} controls=${mediaControlsEnabled()} ` +
+      `card=${mediaCardState()} player=${Services.wm.getMostRecentWindow("Toolkit:PictureInPicture") ? "open" : "none"}`
+  );
   // Firefox fires "activate" on chrome windows. Older builds and some paths
   // only give "focus"/"blur", so both pairs are wired and each handler is
   // idempotent.
