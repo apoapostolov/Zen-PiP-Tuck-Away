@@ -80,7 +80,7 @@ The mark clears the moment the player is back fully on screen, so a window that 
 
 ## The tuck strip
 
-The player carries a strip that tucks it. It is not a small pill beside the controls: it is a band of the video itself, 20% of the width and 90% of the height along the side it will tuck into, and 90% by 20% across the top or the bottom. Inside it are an arrow pointing at that edge and the words Tuck Away, at 45% opacity until you hover, then solid, on a faint dark wash.
+The player carries a strip that tucks it. It is not a small pill beside the controls: it is a band of the video itself, 20% of the width and 90% of the height along the side it will tuck into, and 90% by 20% across the top or the bottom. Inside it are an arrow pointing at that edge and the words Tuck Away, at 45% opacity until you hover, then solid. The band itself paints nothing: no wash, no tint, no glass, at rest or on hover, so the video is the only thing inside it and the arrow and label sit straight on the picture.
 
 Press it and the player parks against that edge. Right-click it and a small map of the directions opens, the same idea as Zia's picker: Smart in the middle, with Right, Top, Left and Bottom around it, the current choice lit. Pick one and the strip moves to that side, and the setting is saved, so it holds for the next video too.
 
