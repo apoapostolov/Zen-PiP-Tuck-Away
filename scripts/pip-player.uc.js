@@ -466,7 +466,9 @@
     }
     setArmed(null);
     if (state !== "tucked") {
-      home = { x: window.screenX, y: window.screenY };
+      if (home || !atImposedPlace()) {
+        home = { x: window.screenX, y: window.screenY };
+      }
       spot = null;
     }
     stopPeek();
@@ -512,10 +514,12 @@
       return false;
     }
     stopPeek();
-    // There is no before this: the player was tucked before it appeared. A home
-    // taken from the spawn point would send an untuck somewhere nobody chose,
-    // so the place is derived from the tucked position instead.
-    home = null;
+    // The player was tucked before it was ever seen, so it has no position of
+    // its own. The place it was last left does exist, and using it is the whole
+    // difference between a strip where the player belongs and a strip wherever
+    // the platform happened to restore the window.
+    const remembered = readHome();
+    home = remembered ? { x: remembered.x, y: remembered.y } : null;
     persistedHome = null;
     // A side is not knowable while the window still reports no size, which is
     // exactly how early an auto tuck runs, so it is settled on the first pass
@@ -534,12 +538,21 @@
       if (!W() || W() < 50) {
         return;
       }
+      // Put the window on the remembered place before deciding which edge it
+      // belongs to: the side is read from where the window is, so a strip
+      // chosen from the restored geometry lands wherever the platform left it.
+      if (home) {
+        const [hx, hy] = homePos();
+        if (Math.abs(window.screenX - hx) > 2 || Math.abs(window.screenY - hy) > 2) {
+          moveWindow(hx, hy);
+        }
+      }
       if (!spot) {
         spot = nearestSide();
         root.setAttribute("pip-tucked", spot);
         reflectZiaButton();
       }
-      window.moveTo(...tuckedPos(spot));
+      moveWindow(...tuckedPos(spot));
     };
     settle();
     requestAnimationFrame(settle);
@@ -1036,12 +1049,28 @@
    * what makes a strip slid along the edge, or a peek dragged sideways, come
    * back to the place the user actually put it.
    */
+  /** Is the window exactly where the mod last put it? */
+  const atImposedPlace = () => {
+    if (!modTarget) {
+      return false;
+    }
+    return (
+      Math.abs(window.screenX - modTarget.x) <= 2 && Math.abs(window.screenY - modTarget.y) <= 2
+    );
+  };
+
   const syncHome = () => {
     const b = screenBox();
     const w = W();
     const h = H();
     if (!w || !h) {
       return home;
+    }
+    if (state !== "tucked" && !home && atImposedPlace()) {
+      // Nothing is remembered and the window is standing where the mod put it:
+      // a rescue is not a place the user chose, and inheriting it is how the
+      // corner a player was once rescued to became its home for good.
+      return null;
     }
     const at = home || { x: window.screenX, y: window.screenY };
     const free = {
@@ -1089,6 +1118,12 @@
   const persistHome = () => {
     const at = home;
     if (!at) {
+      return false;
+    }
+    // Only a free window can be standing at a place the mod imposed. While
+    // tucked the window is off screen by design and the place worth keeping is
+    // the one it came from, which is not where it is.
+    if (state === "free" && atImposedPlace()) {
       return false;
     }
     if (persistedHome && Math.abs(persistedHome.x - at.x) < 2 && Math.abs(persistedHome.y - at.y) < 2) {

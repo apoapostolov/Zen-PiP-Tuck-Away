@@ -271,6 +271,54 @@
     return window.document.hasFocus();
   };
 
+  // ---------- is Zen's own media card there to drive the video?
+  //
+  // Keeping the video in the page is only worth doing while Zen's media card
+  // shows it, and that card is a toolbar of its own: enabled by a preference,
+  // living in the sidebar's tabs toolbar, and absent from layouts that hide it.
+  // With neither a player nor a card there is a video nobody can see, which is
+  // worse than the player the platform asked for.
+
+  const MEDIA_BAR = "#zen-media-controls-toolbar";
+  const MEDIA_CARD_GRACE = 800; // ms the card is given to appear
+
+  const mediaControlsEnabled = () => {
+    try {
+      return Services.prefs.getBoolPref("zen.mediacontrols.enabled", true);
+    } catch (err) {
+      return true;
+    }
+  };
+
+  const mediaCardShown = () => {
+    try {
+      const bar = window.document?.querySelector?.(MEDIA_BAR);
+      if (!bar || bar.hidden || bar.hasAttribute?.("hidden")) {
+        return false;
+      }
+      return !!bar.querySelector?.(".zen-media-card:not([hidden])");
+    } catch (err) {
+      return false;
+    }
+  };
+
+  let cardTimer = null;
+
+  /** Give the card its moment, then hand the request to the real player. */
+  const watchMediaCard = () => {
+    if (cardTimer) {
+      clearTimeout(cardTimer);
+    }
+    cardTimer = setTimeout(() => {
+      cardTimer = null;
+      if (!suppressed || mediaCardShown()) {
+        return;
+      }
+      log("no media card to drive the video, opening the player instead");
+      floatSuppressed();
+    }, MEDIA_CARD_GRACE);
+  };
+
   const installPipHook = () => {
     const api = pipApi();
     if (!api || api.handlePictureInPictureRequest.__pipTuckAway) {
@@ -279,10 +327,14 @@
     trueOriginal = api.handlePictureInPictureRequest.bind(api);
     const wrapped = async (wgp, videoData) => {
       const keepInline =
-        pref(INLINE_PREF, false) && requestedByTabSwitch(wgp) && requestingWindowFocused(wgp);
+        pref(INLINE_PREF, false) &&
+        mediaControlsEnabled() &&
+        requestedByTabSwitch(wgp) &&
+        requestingWindowFocused(wgp);
       if (keepInline) {
         suppressed = { wgp, videoData };
         lastRequest = suppressed;
+        watchMediaCard();
         return undefined;
       }
       return trueOriginal(wgp, videoData);
@@ -462,6 +514,10 @@
    * the video's own tab still folds it away.
    */
   const foldBack = () => {
+    if (cardTimer) {
+      clearTimeout(cardTimer);
+      cardTimer = null;
+    }
     const win = floatedWindow;
     if (!win || win.closed) {
       floatedWindow = null;
