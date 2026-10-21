@@ -42,11 +42,17 @@ Across that strip sits a small badge with a chevron pointing back out, on a fain
 
 ## Where the player opens
 
-The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, written when the player closes, and uses the place the player came from whenever it closes while tucked. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
+The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, and it is kept current rather than written at the end: the place is checked every 200ms and saved the moment it changes. A player killed, crashed, or closed by something that never runs the unload handler still comes back where it was.
+
+While a player is tucked, the note follows the axis that is real. Slide the strip along its edge and that becomes the spot the player returns to; the other axis is the place it came from, because the window is mostly off screen and cannot say where it wants to sit. Pull it out and the place it lands is remembered as well. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
 
 ## How wide the strip is
 
 The strip is 24px by default, which reads as a drawer. **Wide** leaves 48px of the player on screen and **Very wide** leaves 72px, for when the video is worth more than a glance at the edge. The setting moves the geometry and the chevron badge together: the number is published as a custom property on the player's root element so the style sheet and the script cannot disagree, and a player that is already tucked slides to the new width the moment the setting changes.
+
+## Changing which edge it is tucked into
+
+Carry a tucked player to a different edge and it tucks there. The test is the one the drag gesture already uses: if the window is hanging over an edge it was not tucked into, that edge wins and the player re-anchors to it, in the strip width it is set to. If it is not hanging over anything, the drag was a pull into the screen and the player goes free where you let go. Both cases write the new place down.
 
 ## Clicks and double clicks
 

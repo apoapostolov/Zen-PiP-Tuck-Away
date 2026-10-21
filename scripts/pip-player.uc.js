@@ -219,8 +219,11 @@
    * a window drag belongs to the window manager and reports nothing to the
    * page; what can be read is where the window ended up.
    */
-  const hungOver = () => {
-    if (!pref(PREF_DRAG_TUCK, true) || state !== "free" || document.fullscreenElement) {
+  const hungOver = (whileTucked = false) => {
+    if (!pref(PREF_DRAG_TUCK, true) || document.fullscreenElement) {
+      return null;
+    }
+    if (!whileTucked && state !== "free") {
       return null;
     }
     const b = screenBox();
@@ -465,6 +468,8 @@
     spot = side || spot || nearestSide();
     state = "tucked";
     root.setAttribute("pip-tucked", spot);
+    // Tucking onto another edge changes which axis is the real one.
+    syncHome();
     glide(...tuckedPos(spot));
     updateOverlay();
     reflectZiaButton();
@@ -502,6 +507,11 @@
       return false;
     }
     stopPeek();
+    // There is no before this: the player was tucked before it appeared. A home
+    // taken from the spawn point would send an untuck somewhere nobody chose,
+    // so the place is derived from the tucked position instead.
+    home = null;
+    persistedHome = null;
     // A side is not knowable while the window still reports no size, which is
     // exactly how early an auto tuck runs, so it is settled on the first pass
     // that can see one.
@@ -699,7 +709,7 @@
     // the pointer is not.
     if (pullFromEdge() > Math.max(DRIFT_PX, PULL_FREE)) {
       reopenAfter = Date.now() + REVEAL_COOLDOWN;
-      releaseTuck();
+      settleAfterPull();
       return;
     }
     reopenAfter = Date.now() + REVEAL_COOLDOWN;
@@ -934,10 +944,82 @@
     root.removeAttribute("pip-tucked");
     setArmed(null);
     home = { x: window.screenX, y: window.screenY };
+    persistHome();
     updateOverlay();
     refreshSide();
     reflectZiaButton();
     return true;
+  };
+
+  /**
+   * The place this player belongs, kept current as it moves.
+   *
+   * While the player is free that is simply where it is. While it is tucked the
+   * window is mostly off screen, so only the axis that runs along the edge is
+   * real and the other one is taken from where the player came from. That is
+   * what makes a strip slid along the edge, or a peek dragged sideways, come
+   * back to the place the user actually put it.
+   */
+  const syncHome = () => {
+    const b = screenBox();
+    const w = W();
+    const h = H();
+    if (!w || !h) {
+      return home;
+    }
+    const at = home || { x: window.screenX, y: window.screenY };
+    const free = {
+      x: Math.round(clamp(at.x, b.left + MARGIN, b.right - w - MARGIN)),
+      y: Math.round(clamp(at.y, b.top + MARGIN, b.bottom - h - MARGIN)),
+    };
+    if (state === "tucked" && spot) {
+      if (spot === "left" || spot === "right") {
+        free.y = Math.round(clamp(window.screenY, b.top + MARGIN, b.bottom - h - MARGIN));
+      } else {
+        free.x = Math.round(clamp(window.screenX, b.left + MARGIN, b.right - w - MARGIN));
+      }
+    } else {
+      free.x = Math.round(window.screenX);
+      free.y = Math.round(window.screenY);
+    }
+    home = free;
+    return free;
+  };
+
+  let persistedHome = null; // the last value written, so a poll cannot spam prefs
+  // The spawn point is not a position anybody asked for. Nothing is remembered
+  // until the player has been placed: at that moment the remembered place has
+  // been read and the first real move can be tracked.
+  let tracking = false;
+
+  const persistHome = () => {
+    const at = home;
+    if (!at) {
+      return false;
+    }
+    if (persistedHome && Math.abs(persistedHome.x - at.x) < 2 && Math.abs(persistedHome.y - at.y) < 2) {
+      return false;
+    }
+    persistedHome = { x: at.x, y: at.y };
+    writeHome(at.x, at.y);
+    return true;
+  };
+
+  /**
+   * Called on the same beat as the arming check: a place worth remembering is a
+   * place the user put the player, and waiting for the window to close to write
+   * it down loses every move when the player is killed, crashes, or the browser
+   * is closed by something that does not run unload handlers.
+   */
+  const trackPosition = () => {
+    if (!tracking) {
+      return;
+    }
+    if (document.fullscreenElement || animating || revealing || Date.now() < settleUntil) {
+      return;
+    }
+    syncHome();
+    persistHome();
   };
 
   /**
@@ -961,6 +1043,23 @@
     return width;
   };
 
+  /**
+   * A dragged tucked player has two honest outcomes: it was pulled into the
+   * screen, or it was taken to a different edge. Hanging over an edge it was not
+   * tucked into means the second, and it tucks there instead of falling free,
+   * so a player carried from one side to another changes its tuck rather than
+   * landing in the middle of the screen.
+   */
+  const settleAfterPull = () => {
+    const over = hungOver(true);
+    if (over && over.side !== spot) {
+      tuck(over.side);
+      return true;
+    }
+    releaseTuck();
+    return true;
+  };
+
   const watchTucked = () => {
     if (tuckedTimer) {
       return;
@@ -977,7 +1076,7 @@
       // screen frees the player; a slide along the edge keeps it tucked where
       // it now sits, because the attached position follows the drag.
       if (pullFromEdge() > Math.max(DRIFT_PX, PULL_FREE)) {
-        releaseTuck();
+        settleAfterPull();
         return;
       }
       if (peeked) {
@@ -1596,13 +1695,18 @@
   // One timer for the life of the window: a size read and four subtractions
   // every 200ms, which is what notices a player dragged past an edge.
   if (!armTimer) {
-    armTimer = setInterval(watchArmed, ARM_POLL);
+    armTimer = setInterval(() => {
+      watchArmed();
+      trackPosition();
+    }, ARM_POLL);
   }
   watchArmed();
+  trackPosition();
 
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
     instantTuck();
+    tracking = true;
   } else {
     // Firefox restores the last position just after the window opens, so check
     // more than once: first for a place this mod remembers, then that whatever
@@ -1611,6 +1715,7 @@
       if (!restoreHome()) {
         rescuePosition();
       }
+      tracking = true;
     };
     for (const delay of [0, 300, 800]) {
       settleTimers.push(setTimeout(placePlayer, delay));
@@ -1673,7 +1778,14 @@
     delete window.__pipTuckAway;
   };
 
-  window.__pipTuckAway = { toggle, tuck, untuck, destroy, isTucked: () => state === "tucked" };
+  window.__pipTuckAway = {
+    toggle,
+    tuck,
+    untuck,
+    destroy,
+    isTucked: () => state === "tucked",
+    stats: () => ({ state, spot, home, tracking, sliver, peeked }),
+  };
   /**
    * Last chance to note where the player belongs: while tucked that is the
    * place it came from, because the window itself is mostly off screen.
@@ -1682,13 +1794,8 @@
     "unload",
     () => {
       try {
-        if (state === "tucked") {
-          if (home) {
-            writeHome(home.x, home.y);
-          }
-        } else {
-          writeHome(window.screenX, window.screenY);
-        }
+        syncHome();
+        persistHome();
       } catch (err) {
         // A window on its way out needs nothing.
       }
