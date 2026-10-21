@@ -1,7 +1,7 @@
 {
   "id": "pip-tuck-away",
   "name": "PiP Tuck Away",
-  "description": "Tuck the player into a screen edge, and show the video in Zen's media widget.",
+  "description": "Keep a video playing at the screen edge while you use the rest of your desktop.",
   "author": "Apostol Apostolov",
   "version": "1.0.0",
   "license": "MIT",
@@ -24,7 +24,7 @@
   "scripts": {
     "scripts/pip-tuck-away.uc.js": {
       "name": "PiP Tuck Away",
-      "description": "Watches for picture-in-picture players, loads the player half into each one, and owns the keyboard toggle.",
+      "description": "Right-click or press Ctrl+Alt+T to tuck the video away and bring it back.",
       "include": [
         "chrome://browser/content/browser.xhtml"
       ]
