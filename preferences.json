@@ -7,12 +7,8 @@
   },
   {
     "type": "text",
-    "label": "The player slides into the nearest screen edge and leaves a 24px strip. These settings decide how it comes back out.",
+    "label": "The player slides into the nearest screen edge and leaves a small strip.",
     "margin": "0 0 12px 0"
-  },
-  {
-    "type": "separator",
-    "label": "Controls"
   },
   {
     "property": "pip-tuck-away.right-click",
@@ -27,32 +23,10 @@
     "defaultValue": true
   },
   {
-    "property": "pip-tuck-away.global-hotkey",
-    "label": "Same chord outside Zen (needs the helper)",
-    "type": "checkbox",
-    "defaultValue": false
-  },
-  {
-    "type": "text",
-    "label": "Ctrl+Alt+T is installed on every Zen window, so it works from the player itself and from a second window. It only acts while a player is open, so the chord stays free otherwise.",
-    "size": "11px",
-    "margin": "4px 0 0 0"
-  },
-  {
-    "type": "text",
-    "label": "Windows only gives a chord to another application through a native registration, which a mod cannot make. Run tools/pip-hotkey.pyw once and tick the box above for that, otherwise the chord works inside Zen only.",
-    "size": "11px",
-    "margin": "2px 0 0 0"
-  },
-  {
     "property": "pip-tuck-away.hover-peek",
     "label": "Peek while hovering the tucked strip",
     "type": "checkbox",
     "defaultValue": false
-  },
-  {
-    "type": "separator",
-    "label": "Opening the player"
   },
   {
     "property": "pip-tuck-away.inline-in-zen",
@@ -61,21 +35,9 @@
     "defaultValue": false
   },
   {
-    "type": "text",
-    "label": "While Zen has focus, the automatic PiP from switching tabs keeps the video in the sidebar player card. The window appears only when you leave Zen, and closes again when you come back. Asking for PiP yourself, from the card or the video, still opens the window.",
-    "size": "11px",
-    "margin": "4px 0 0 0"
-  },
-  {
     "property": "pip-tuck-away.auto-tuck",
     "label": "Auto tuck on PiP switch",
     "type": "checkbox",
     "defaultValue": false
-  },
-  {
-    "type": "text",
-    "label": "Auto tuck opens the player already tucked, instead of showing it in its normal place first. The edge is the one nearest the player's usual spot.",
-    "size": "11px",
-    "margin": "4px 0 0 0"
   }
 ]

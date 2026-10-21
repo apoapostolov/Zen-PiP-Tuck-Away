@@ -1,14 +1,14 @@
 # PiP Tuck Away
 
-A Sine mod for Zen Browser that gets the picture-in-picture player out of the way. Throw it at a screen edge and it slides mostly off screen, leaving a 24px strip of video. Right-click, press Ctrl+Shift+T, or hover the strip to bring it back.
+A Sine mod for Zen Browser that gets the picture-in-picture player out of the way. Throw it at a screen edge and it slides mostly off screen, leaving a small strip of video. Right-click, press Ctrl+Alt+T, or hover the strip to bring it back.
 
 Picture-in-picture is useful right up until it sits on top of the thing you are reading. Firefox lets you move the window but never remembers where it went, so every video ends up parked over the same paragraph. This mod turns the screen edge into a drawer.
 
 ## How it behaves
 
-Right-clicking the player tucks it into the closest edge and right-clicking again pulls it back out. Pressing **Ctrl+Shift+T** switches between the two states from either window, so the shortcut works while you are typing in the browser as well as while the video has focus. Hovering the strip slides the whole player back into view, and it returns to the edge as soon as the pointer leaves the video.
+Right-clicking the player tucks it into the closest edge and right-clicking again pulls it back out. Pressing **Ctrl+Alt+T** switches between the two states from any Zen window, so the shortcut works while you are typing in the browser as well as while the video has focus. Hovering the strip slides the whole player back into view, and it returns to the edge as soon as the pointer leaves the video.
 
-Tucking keeps the window's size and only moves it, so the video never re-encodes, restarts, or loses its place. The strip is 24px wide on a side edge and sits flush with the screen, which makes it reachable without aiming. Coming back out by hand places the player inside the screen edges with a 16px margin, never half off screen.
+Tucking keeps the window's size and only moves it, so the video never re-encodes, restarts, or loses its place. The strip is a narrow sliver on a side edge and sits flush with the screen, which makes it reachable without aiming. Coming back out by hand places the player inside the screen edges with a 16px margin, never half off screen.
 
 The edge is chosen when you tuck: whichever of left, right, or bottom the window is nearest to. There is no top edge, because macOS refuses to move a window above the screen.
 
@@ -20,7 +20,6 @@ The mod adds one section to its settings dialog in Sine, with four switches.
 | --- | --- | --- |
 | Tuck away on right click | on | Right-clicking the player toggles tucked and untucked |
 | Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
-| Same chord outside Zen | off | Uses the bundled helper, which registers the chord with Windows |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
 | Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
 | Integrate PiP in the player widget | off | Switching tabs keeps the video in Zen's sidebar card; the window appears only when you leave Zen |
@@ -68,42 +67,23 @@ Ctrl+Alt+T toggles the player. The listener is installed on every chrome window 
 
 The chord only acts while a player window is open. With nothing playing it is passed through untouched, so Ctrl+Alt+T stays available for whatever else wants it.
 
-### Making it work outside Zen
-
-Windows delivers a chord to another application only if a process registered it with `RegisterHotKey`. Firefox exposes no hotkey API to its own chrome scripts, and the browser can never receive keys while another application holds focus, so this part cannot live in the mod.
-
-`tools/pip-hotkey.pyw` is that registration. It is a small helper that registers Ctrl+Alt+T, and on each press appends a sequence number to `%LOCALAPPDATA%\pip-tuck-away\toggle.json`. The mod polls that file while a player exists and runs the same toggle. Nothing else changes: with the helper absent, the chord simply works inside Zen only.
-
-```powershell
-powershell -NoProfile -File tools\install-autostart.ps1
-```
-
-That writes a tiny `.vbs` into your Startup folder, which starts the helper through `pythonw.exe` so no console window ever appears, and starts it now. Remove it with `-Remove`, which also asks the helper to exit.
-
-Requirements and behaviour worth knowing:
-
-- Python 3 must be installed, because the helper is the registration host. Nothing else is downloaded.
-- If another application already owns Ctrl+Alt+T, registration fails, the helper writes the Windows error to `status.json`, and the mod keeps working inside Zen only. Nothing breaks quietly without a trace.
-- When Zen already has focus the helper stands aside and lets the browser handle the chord, so the normal case has no delay. The file round trip only happens when some other application is in front, which is the case the helper exists for.
-- The mod never launches the helper. What starts on your machine stays your decision.
-- `stop` in the state folder makes the helper exit; it also exits when the registration is lost.
+Outside Zen it does nothing. Windows gives a chord to another application only through a native registration, and the platform has no hotkey API a browser mod could use, so there is no honest way to make this work while another application has focus.
 
 ## Known limits
 
 - It only touches picture-in-picture. Normal windows are none of its business.
 - Tucking is skipped while the player is in fullscreen, since there is nothing to hide there.
-- The player window keeps its size, so a very large video leaves a taller strip than a small one. The strip is always 24px wide.
+- The player window keeps its size, so a very large video leaves a taller strip than a small one. The strip is always a narrow sliver along the edge.
 - Built and tested against Sine 2.3.4.1c and Zen Twilight 1.24t. Zen's own mod loader uses a different content URL, so the player half will not load there without a path change.
 
 ## How it is put together
 
-Two scripts, no stylesheet.
+Two scripts, no stylesheet, no helper process.
 
 | File | Runs in | Job |
 | --- | --- | --- |
 | `scripts/pip-tuck-away.uc.js` | any browser window | Watches for player windows, loads the player half into each one, owns the keyboard chord on every window, keeps playback inline while Zen has focus |
 | `scripts/pip-player.uc.js` | the picture-in-picture player | Right-click, hover peek, the move maths, and the exposed toggle API |
-| `tools/pip-hotkey.pyw` | a hidden Windows process | Registers Ctrl+Alt+T with the OS and writes the toggle signal the mod polls |
 
 Sine declares only the first script, so it loads exactly once into `browser.xhtml`. The second is loaded on demand through `Services.scriptloader.loadSubScript`, using the profile's `content sine ../sine-mods/` manifest entry, which is why the mod's files are reachable at `chrome://sine/content/pip-tuck-away/`.
 

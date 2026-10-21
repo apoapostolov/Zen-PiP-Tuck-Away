@@ -207,112 +207,6 @@
   setTimeout(existing, 1000);
 
 
-  // ---------- global hotkey bridge
-  //
-  // A browser cannot receive a chord while another application has focus. The
-  // platform hands that only to a native registration, and Firefox exposes no
-  // hotkey API, so tools/pip-hotkey.pyw registers Ctrl+Alt+T with Windows and
-  // writes a sequence number to a small file. This side reads that file while
-  // a player exists and runs the same toggle. The helper is started by the
-  // user, never by this script.
-
-  const BRIDGE_PREF = "pip-tuck-away.global-hotkey";
-  const BRIDGE_POLL = 150;
-
-  const bridgeFile = () => {
-    const dir = Services.dirsvc.get("LocalAppData", Components.interfaces.nsIFile);
-    dir.append("pip-tuck-away");
-    dir.append("toggle.json");
-    return dir.path;
-  };
-
-  let bridgeSeq = null;
-  let bridgeTimer = null;
-  let bridgeWarned = false;
-
-  const readBridge = async () => {
-    if (typeof IOUtils === "undefined") {
-      if (!bridgeWarned) {
-        bridgeWarned = true;
-        log("IOUtils is unavailable, so the global hotkey bridge stays off");
-      }
-      return null;
-    }
-    try {
-      const file = bridgeFile();
-      if (!(await IOUtils.exists(file))) {
-        return null;
-      }
-      return JSON.parse(await IOUtils.readUTF8(file));
-    } catch (err) {
-      // A half written file or a directory that vanished: the next tick retries.
-      return null;
-    }
-  };
-
-  const pollBridge = async () => {
-    if (!pref(BRIDGE_PREF, false) || !pref(SHORTCUT_PREF, true)) {
-      return;
-    }
-    if (!playerWindow()) {
-      // No player: forget the baseline so the next one starts clean.
-      bridgeSeq = null;
-      return;
-    }
-    const data = await readBridge();
-    const seq = Number(data?.seq);
-    if (!Number.isFinite(seq)) {
-      return;
-    }
-    if (bridgeSeq === null) {
-      bridgeSeq = seq; // the first read is a baseline, never a trigger
-      return;
-    }
-    if (seq === bridgeSeq) {
-      return;
-    }
-    if (seq < bridgeSeq) {
-      // The helper restarted and began counting again, so adopt its baseline
-      // instead of toggling on a number left over from the previous run.
-      bridgeSeq = seq;
-      return;
-    }
-    bridgeSeq = seq;
-    togglePlayer();
-  };
-
-  const startBridge = () => {
-    if (bridgeTimer) {
-      return;
-    }
-    bridgeTimer = setInterval(() => {
-      pollBridge().catch(() => {});
-    }, BRIDGE_POLL);
-  };
-
-  const stopBridge = () => {
-    if (bridgeTimer) {
-      clearInterval(bridgeTimer);
-      bridgeTimer = null;
-    }
-    bridgeSeq = null;
-  };
-
-  const onBridgePref = (subject, topic, name) => {
-    if (topic !== "nsPref:changed" || name !== BRIDGE_PREF) {
-      return;
-    }
-    if (pref(BRIDGE_PREF, false)) {
-      startBridge();
-    } else {
-      stopBridge();
-    }
-  };
-
-  Services.prefs.addObserver(BRIDGE_PREF, onBridgePref);
-  if (pref(BRIDGE_PREF, false)) {
-    startBridge();
-  }
 
   // ---------- keep playback inside Zen until the browser is left
   //
@@ -441,12 +335,6 @@
       Services.ww.unregisterNotification(observer);
     } catch (err) {
       log("could not unregister the window observer", err);
-    }
-    stopBridge();
-    try {
-      Services.prefs.removeObserver(BRIDGE_PREF, onBridgePref);
-    } catch (err) {
-      log("could not remove the bridge observer", err);
     }
     detachKeys(window);
     for (const win of Services.wm.getEnumerator(null)) {
