@@ -1,7 +1,7 @@
 // Headless harness for pip-mirror-child.sys.mjs: the content half of the widget
 // mirror. Stubs the actor base class, a page with a video in it, an offscreen
-// canvas, and a frame stream, then drives the real module and asserts what it
-// sends and what it closes.
+// canvas and the video's own frame callbacks, then drives the real module and
+// asserts what it copies, what it sends, and what it costs.
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,67 +20,69 @@ const MODULE_FILE = join(tmpdir(), `pip-mirror-child-${process.pid}.mjs`);
 const results = [];
 const check = (name, actual, expected) => {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
-  results.push({ name, ok, actual: JSON.stringify(actual), expected: JSON.stringify(expected) });
+  results.push({ name, ok });
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `  got ${JSON.stringify(actual)} want ${JSON.stringify(expected)}`}`);
 };
 
-/** A video the page is playing, or a page with nothing worth copying. */
-const makeVideo = (opts = {}) => ({
-  videoWidth: opts.width ?? 1280,
-  videoHeight: opts.height ?? 720,
-  readyState: opts.readyState ?? 4,
-  paused: opts.paused ?? false,
-  ended: false,
-  muted: false,
-  volume: 1,
-  currentTime: opts.time ?? 0,
-  duration: opts.duration ?? 300,
-  mediaKeys: opts.encrypted ? {} : null,
-  captureStream: opts.captureStream,
-});
+/** The clock the module sees, so a rate can be tested without waiting. */
+const clock = { now: 1_000_000 };
+const realNow = Date.now;
+const setClock = (ms) => {
+  clock.now = ms;
+};
 
-/** Frames the stream hands over, one per read. */
-const makeFrames = (count) => {
-  const closed = [];
-  const queue = [];
-  for (let i = 0; i < count; i++) {
-    queue.push({
-      timestamp: i * 40_000,
-      displayWidth: 1280,
-      displayHeight: 720,
-      closed: false,
-      close() {
-        this.closed = true;
-        closed.push(i);
-      },
-    });
+/** A video the page is playing, or a page with nothing worth copying. */
+const makeVideo = (opts = {}) => {
+  const callbacks = new Map();
+  let nextId = 1;
+  const video = {
+    videoWidth: opts.width ?? 1280,
+    videoHeight: opts.height ?? 720,
+    readyState: opts.readyState ?? 4,
+    paused: opts.paused ?? false,
+    ended: false,
+    muted: false,
+    volume: 1,
+    currentTime: opts.time ?? 0,
+    duration: opts.duration ?? 300,
+    mediaKeys: opts.encrypted ? {} : null,
+    play() {
+      video.paused = false;
+      return Promise.resolve();
+    },
+    pause() {
+      video.paused = true;
+    },
+  };
+  if (opts.frameCallback !== false) {
+    video.requestVideoFrameCallback = (fn) => {
+      callbacks.set(nextId, fn);
+      return nextId++;
+    };
+    video.cancelVideoFrameCallback = (id) => callbacks.delete(id);
   }
-  return { queue, closed };
+  /** The video presents a frame: its callbacks run, and re-register. */
+  video.present = () => {
+    const pending = [...callbacks.entries()];
+    callbacks.clear();
+    for (const [, fn] of pending) fn();
+    return pending.length;
+  };
+  video.pending = () => callbacks.size;
+  return video;
 };
 
 async function mk(opts = {}) {
   globalThis.__pipSent = [];
   const sent = globalThis.__pipSent;
+  const draws = [];
   fs.writeFileSync(MODULE_FILE, SHIM + fs.readFileSync(process.argv[2], "utf8"));
-  const frames = makeFrames(opts.frames ?? 0);
-  const reader = {
-    cancelled: false,
-    async read() {
-      if (reader.cancelled || frames.queue.length === 0) {
-        return { value: undefined, done: true };
-      }
-      return { value: frames.queue.shift(), done: false };
-    },
-    async cancel() {
-      reader.cancelled = true;
-    },
-  };
-  let processorMade = 0;
+
   const canvas = {
     width: 0,
     height: 0,
     getContext: () => ({
-      drawImage() {},
+      drawImage: (source, x, y, w, h) => draws.push({ source, w, h }),
       getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
     }),
   };
@@ -91,15 +93,9 @@ async function mk(opts = {}) {
       querySelectorAll: () => (video ? [video] : []),
       createElement: () => canvas,
     },
-    OffscreenCanvas: opts.offscreen === false ? undefined : function OffscreenCanvas() {
+    OffscreenCanvas: function OffscreenCanvas() {
       return canvas;
     },
-    MediaStreamTrackProcessor: opts.noProcessor
-      ? undefined
-      : function MediaStreamTrackProcessor() {
-          processorMade++;
-          return { readable: { getReader: () => reader } };
-        },
     requestAnimationFrame: (fn) => {
       frameQueue.push(fn);
       return frameQueue.length;
@@ -109,22 +105,20 @@ async function mk(opts = {}) {
     },
   };
 
-  // A fresh query string per case, so no state can leak between them.
   const module = await import(`file://${MODULE_FILE.replace(/\\/g, "/")}?${Math.random()}`);
-  const Child = module.PipMirrorChild;
-  const child = new Child();
-  // The real base class provides these; the module under test only uses them.
+  const child = new module.PipMirrorChild();
   child.contentWindow = contentWindow;
   child.document = contentWindow.document;
 
   return {
     child,
     sent,
-    frames,
-    reader,
     video,
     canvas,
-    processors: () => processorMade,
+    draws,
+    names: () => sent.map((m) => m.name),
+    frames: () => sent.filter((m) => m.name === "PipMirror:Frame"),
+    rate: () => [...sent].reverse().find((m) => m.name === "PipMirror:Rate")?.data ?? null,
     /** Run the animation frame the copy loop asked for. */
     runFrame() {
       const upto = frameQueue.length;
@@ -134,17 +128,18 @@ async function mk(opts = {}) {
         if (fn) fn();
       }
     },
-    /** Let the stream's promises settle. */
     async settle() {
       for (let i = 0; i < 12; i++) await new Promise((r) => setImmediate(r));
     },
-    names: () => sent.map((m) => m.name),
   };
 }
 
-// 1. a playing video starts with a picture, then streams its own frames
+Date.now = () => clock.now;
+
+// 1. a playing video starts with a picture, and copies at the panel's size
 {
-  const t = await mk({ frames: 3, video: { captureStream: () => ({ getVideoTracks: () => [{}] }) } });
+  setClock(1_000_000);
+  const t = await mk({});
   t.child.receiveMessage({ name: "PipMirror:Start" });
   await t.settle();
   const first = t.sent[0];
@@ -154,39 +149,71 @@ async function mk(opts = {}) {
     720,
   ]);
   check("and a picture is sent at once, so a paused video is not an empty panel", t.names()[1], "PipMirror:Frame");
-  check("the frame stream is used when the build has one", t.processors(), 1);
-  check("and its frames are sent as frames", t.names().includes("PipMirror:VideoFrame"), true);
-  const carried = t.sent.filter((m) => m.name === "PipMirror:VideoFrame");
-  check("each frame travels as a transferable", carried[0].transfers.length, 1);
-  check("with the time it was shown at", carried[0].data.time, 0);
-  // The frame is handed over, so it is the browser half that closes it. The
-  // child only closes what it drops, which is what keeps a slow sidebar from
-  // queueing frames behind it.
-  check("and it is handed over rather than closed here", carried[0].data.frame.closed, false);
-  check("frames the sidebar cannot keep up with are dropped", t.frames.closed.length >= 1, true);
-  check("and nothing is lost or double counted", carried.length + t.frames.closed.length, 3);
+  check("copied at the size the sidebar shows it", [t.canvas.width, t.canvas.height], [320, 180]);
+  check("and the copy is the video's own shape", t.draws[0].w, 320);
 }
 
-// 2. no frame stream in the build: the pixels are copied instead
+// 2. the video's own frames drive the copying, once each
 {
-  const t = await mk({ noProcessor: true, video: { captureStream: () => ({ getVideoTracks: () => [{}] }) } });
+  setClock(1_000_000);
+  const t = await mk({});
   t.child.receiveMessage({ name: "PipMirror:Start" });
   await t.settle();
-  check("nothing is streamed", t.names().includes("PipMirror:VideoFrame"), false);
-  check("pixels are copied", t.names().includes("PipMirror:Frame"), true);
-  check("and the copy keeps going on the video's own clock", (t.runFrame(), t.names().filter((n) => n === "PipMirror:Frame").length >= 1), true);
+  const before = t.draws.length;
+  check("the video was asked to say when it has a frame", t.video.pending() > 0, true);
+  setClock(1_000_050);
+  t.video.present();
+  check("a presented frame is copied", t.draws.length, before + 1);
+  check("and it is sent", t.frames().length, before + 1);
+  // Two presentations inside the floor are one copy: the readback is not free.
+  setClock(1_000_060);
+  t.video.present();
+  check("a second frame too soon is not copied", t.draws.length, before + 1);
+  setClock(1_000_100);
+  t.video.present();
+  check("and the next one is", t.draws.length, before + 2);
 }
 
-// 3. a video the page will not hand over a stream for
+// 3. a build without the video's frame callback copies on a clock instead
 {
-  const t = await mk({ noProcessor: true });
+  setClock(2_000_000);
+  const t = await mk({ video: { frameCallback: false } });
   t.child.receiveMessage({ name: "PipMirror:Start" });
   await t.settle();
-  check("no stream is asked for", t.names().includes("PipMirror:VideoFrame"), false);
-  check("and the copy is what shows it", t.names().includes("PipMirror:Frame"), true);
+  const before = t.draws.length;
+  setClock(2_000_100);
+  t.runFrame();
+  check("a frame of the browser's own clock is copied", t.draws.length, before + 1);
+  setClock(2_000_105);
+  t.runFrame();
+  check("and a second one inside the floor is not", t.draws.length, before + 1);
+  setClock(2_000_200);
+  t.runFrame();
+  check("the next one is", t.draws.length, before + 2);
 }
 
-// 4. a page with nothing to copy says so
+// 4. what it costs is reported, so a slow picture has numbers
+{
+  setClock(3_000_000);
+  const t = await mk({});
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  await t.settle();
+  for (const at of [3_000_100, 3_000_500, 3_001_000, 3_001_500]) {
+    setClock(at);
+    t.video.present();
+  }
+  setClock(3_002_000); // two seconds after the start
+  t.runFrame();
+  const rate = t.rate();
+  check("the rate is reported", !!rate, true);
+  // The opening still plus four presented frames, over two seconds.
+  check("with the frames a second it managed", rate.fps, 2.5);
+  check("the size it copied", [rate.width, rate.height], [320, 180]);
+  check("what drove the copying", rate.trigger, "frames");
+  check("and how long a frame took", typeof rate.ms, "number");
+}
+
+// 5. a page with nothing to copy says so
 {
   const t = await mk({ noVideo: true });
   t.child.receiveMessage({ name: "PipMirror:Start" });
@@ -194,62 +221,59 @@ async function mk(opts = {}) {
   check("the browser half is told there is no video", t.names(), ["PipMirror:Unavailable"]);
 }
 
-// 5. protected video is refused before anything is copied
+// 6. protected video is refused before anything is copied
 {
-  const t = await mk({ video: { encrypted: true, captureStream: () => ({ getVideoTracks: () => [{}] }) } });
+  const t = await mk({ video: { encrypted: true } });
   t.child.receiveMessage({ name: "PipMirror:Start" });
   await t.settle();
   check("it is reported as protected", t.sent[0].data.encrypted, true);
   check("and nothing is copied", t.names().includes("PipMirror:Frame"), false);
-  check("nor streamed", t.names().includes("PipMirror:VideoFrame"), false);
-}
-
-// 6. stopping lets the stream go
-{
-  const t = await mk({ frames: 5, video: { captureStream: () => ({ getVideoTracks: () => [{}] }) } });
-  t.child.receiveMessage({ name: "PipMirror:Start" });
-  await t.settle();
-  t.child.receiveMessage({ name: "PipMirror:Stop" });
-  await t.settle();
-  check("the reader is cancelled", t.reader.cancelled, true);
-  check("and the browser half is told it stopped", t.names().includes("PipMirror:Stopped"), true);
 }
 
 // 7. a pause sends one still, and the state with it
 {
-  const t = await mk({ video: { captureStream: () => ({ getVideoTracks: () => [{}] }) } });
+  setClock(4_000_000);
+  const t = await mk({});
   t.child.receiveMessage({ name: "PipMirror:Start" });
   await t.settle();
-  const before = t.names().filter((n) => n === "PipMirror:Frame").length;
+  const before = t.draws.length;
   t.video.paused = true;
   t.video.currentTime = 12;
   t.child.handleEvent({ type: "pause", target: t.video });
-  check("a still is sent", t.names().filter((n) => n === "PipMirror:Frame").length, before + 1);
-  check("with the time it stopped at", t.sent.at(-1).data.time, 12);
+  check("a still is sent", t.draws.length, before + 1);
+  check("with the time it stopped at", t.frames().at(-1).data.time, 12);
   check("and the playback state follows the video's own event", t.names().includes("PipMirror:State"), true);
+  setClock(4_000_200);
+  t.runFrame();
+  check("and it stays quiet while the pause is held", t.draws.length, before + 1);
 }
 
-// 8. a command reaches the video, and the state comes back
+// 8. stopping lets the video's callbacks go
 {
-  const t = await mk({ video: { captureStream: () => ({ getVideoTracks: () => [{}] }) } });
-  let played = 0;
-  t.video.play = () => {
-    played++;
-    return Promise.resolve();
-  };
-  t.video.pause = () => {
-    t.video.paused = true;
-  };
+  setClock(5_000_000);
+  const t = await mk({});
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  await t.settle();
+  t.child.receiveMessage({ name: "PipMirror:Stop" });
+  await t.settle();
+  check("the browser half is told it stopped", t.names().includes("PipMirror:Stopped"), true);
+  check("and nothing is left waiting on the video", t.video.pending(), 0);
+}
+
+// 9. a command reaches the video, and the state comes back
+{
+  const t = await mk({});
   t.child.receiveMessage({ name: "PipMirror:Start" });
   await t.settle();
   t.child.receiveMessage({ name: "PipMirror:Control", data: { action: "toggle" } });
   check("a playing video is paused", t.video.paused, true);
   t.child.receiveMessage({ name: "PipMirror:Control", data: { action: "toggle" } });
   await t.settle();
-  check("and a paused one is played", played, 1);
+  check("and a paused one is played", t.video.paused, false);
   check("the state is announced either way", t.names().includes("PipMirror:State"), true);
 }
 
+Date.now = realNow;
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
 process.exit(failed.length ? 1 : 0);

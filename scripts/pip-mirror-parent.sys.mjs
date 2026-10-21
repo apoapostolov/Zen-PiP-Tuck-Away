@@ -27,8 +27,8 @@ export class PipMirrorParent extends JSWindowActorParent {
       case "PipMirror:Frame":
         controller.mirrorFrame(id, message.data);
         break;
-      case "PipMirror:VideoFrame":
-        controller.mirrorVideoFrame(id, message.data);
+      case "PipMirror:Rate":
+        controller.mirrorRate(id, message.data ?? {});
         break;
       case "PipMirror:State":
         controller.mirrorState(id, message.data ?? {});

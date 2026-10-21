@@ -47,8 +47,19 @@
   const TRACE_PREF = "pip-tuck-away.trace";
   const TRACE_MAX = 96 * 1024;
 
+  /**
+   * Where the trace goes.
+   *
+   * The mod's own folder comes first: it is the one directory this mod is
+   * certain to be able to write to, and it is where somebody looking for the
+   * trace would look. The profile root is the fallback.
+   */
   const tracePath = () => {
+    const id =
+      /^chrome:\/\/sine\/content\/([^/]+)\//.exec(Components.stack?.filename ?? "")?.[1] ??
+      "pip-tuck-away";
     for (const make of [
+      () => PathUtils.join(PathUtils.profileDir, "chrome", "sine-mods", id, "trace.log"),
       () => {
         const file = Services.dirsvc.get("ProfD", Components.interfaces.nsIFile);
         file.append("pip-tuck-away-trace.log");
@@ -89,7 +100,16 @@
           }
           await IOUtils.writeUTF8(path, line, { mode: "append" });
         })
-        .catch(() => {});
+        .catch((err) => {
+          try {
+            Services.prefs.setStringPref(
+              "pip-tuck-away.trace-error",
+              `${message} | ${err?.message ?? err}`
+            );
+          } catch (inner) {
+            // Nothing left to report with.
+          }
+        });
     } catch (err) {
       log(message, err);
     }
@@ -590,7 +610,6 @@
   // Long enough for a slow first frame, short enough that a video which cannot
   // be copied is a player window rather than an empty box.
   const MIRROR_PATIENCE = 2000;
-  const MIRROR_MAX_DIMENSION = 480; // the long edge of a frame drawn in the sidebar
   const XHTML_NS = "http://www.w3.org/1999/xhtml";
   const PLAY_ICON = "M4 2l12 8-12 8z";
   const PAUSE_ICON = "M4 2h4v14H4zM10 2h4v14h-4z";
@@ -812,7 +831,13 @@
     const base = panelBase ?? (Math.round(barRect.height) || 0);
     const room = height + PANEL_INSET * 2 + Math.max(0, Math.round(cardRect.height) - base);
     const left = Math.round(cardRect.left - barRect.left + PANEL_INSET);
-    const note = `${left},${width}x${height} room=${room}`;
+    // The panel hangs off the card's own top edge rather than off the top of
+    // the toolbar. The room the toolbar gives up is what keeps the panel inside
+    // the widget, but the panel's place no longer depends on it: the bottom edge
+    // is measured from the card every frame, so a room that has not caught up
+    // yet cannot leave the panel sitting over the card.
+    const bottom = Math.round(barRect.bottom - cardRect.top + PANEL_INSET);
+    const note = `${left},${bottom},${width}x${height} room=${room}`;
     if (note === lastPanelNote) {
       return;
     }
@@ -821,6 +846,8 @@
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
     box.style.left = `${left}px`;
+    box.style.top = "auto";
+    box.style.bottom = `${bottom}px`;
   };
 
   /**
@@ -848,57 +875,6 @@
       panelWatch = 0;
     }
     lastPanelNote = "";
-  };
-
-  /**
-   * A frame the page itself produced, drawn straight into the sidebar's canvas.
-   *
-   * A VideoFrame is transferable, so nothing is copied pixel by pixel: the
-   * picture is the video's own, at the video's own rate, and the canvas scales
-   * it down as it draws. The frame is closed either way, because a frame that
-   * is never closed is a frame that is never freed.
-   */
-  const drawMirrorVideoFrame = (frame) => {
-    const box = mirrorBox();
-    const canvas = box?.firstElementChild;
-    if (!box || !canvas || !frame) {
-      return;
-    }
-    const vw = frame.displayWidth || frame.codedWidth || 0;
-    const vh = frame.displayHeight || frame.codedHeight || 0;
-    if (!vw || !vh) {
-      frame.close?.();
-      return;
-    }
-    const scale = Math.min(1, MIRROR_MAX_DIMENSION / Math.max(vw, vh));
-    const width = Math.max(2, Math.round((vw * scale) / 2) * 2);
-    const height = Math.max(2, Math.round((vh * scale) / 2) * 2);
-    mirrorAspect = vw / vh;
-    if (!mirrorPainted) {
-      mirrorPainted = true;
-      boxHasPicture = true;
-      if (mirrorTimer) {
-        clearTimeout(mirrorTimer);
-        mirrorTimer = 0;
-      }
-      box.removeAttribute("waiting");
-      placeMirror();
-      startPanelWatch();
-    }
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-      mirrorContext = null;
-    }
-    if (!mirrorContext) {
-      mirrorContext = canvas.getContext("2d", { alpha: false });
-    }
-    try {
-      mirrorContext.drawImage(frame, 0, 0, width, height);
-    } catch (err) {
-      log("a frame from the page could not be drawn", err);
-    }
-    frame.close?.();
   };
 
   const drawMirrorFrame = (frame) => {
@@ -1216,23 +1192,6 @@
       };
       showMirrorState();
     },
-    mirrorVideoFrame(id, data) {
-      if (isPendingTab(id)) {
-        adoptPending();
-      } else if (id !== tabIdOf(mirrorBrowser)) {
-        data?.frame?.close?.();
-        return;
-      }
-      drawMirrorVideoFrame(data?.frame);
-      if (data) {
-        mirrorState = {
-          paused: !!data.paused,
-          time: data.time ?? mirrorState.time,
-          duration: data.duration ?? mirrorState.duration,
-        };
-        showMirrorState();
-      }
-    },
     mirrorFrame(id, frame) {
       if (isPendingTab(id)) {
         adoptPending();
@@ -1248,6 +1207,15 @@
         };
         showMirrorState();
       }
+    },
+    mirrorRate(id, data) {
+      if (id !== tabIdOf(mirrorBrowser)) {
+        return;
+      }
+      trace(
+        `mirror: ${data.fps} fps, ${data.ms} ms a frame, ${data.width}x${data.height}, ` +
+          `copied on ${data.trigger}${data.paused ? ", paused" : ""}`
+      );
     },
     mirrorState(id, state) {
       if (id !== tabIdOf(mirrorBrowser) && !isPendingTab(id)) {

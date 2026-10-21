@@ -1093,6 +1093,11 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("the panel appears with the first frame", t.mirror().hasAttribute("waiting"), false);
   check("it sits above the card, at the card's width", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
   check("inside the widget's own box, six pixels in from its left edge", t.mirror().style.left, "26px");
+  // Hung off the card's own top edge, not off the top of the toolbar: the room
+  // the widget gives up can lag a frame behind without the panel sitting over
+  // the card, which is what a hover used to be needed to fix.
+  check("and hung six pixels above the card's top edge", t.mirror().style.bottom, "586px");
+  check("so its place does not depend on the room", t.mirror().style.top, "auto");
   // 162 for the panel, 6px above and below it, and the 120px the card carries
   // beyond the 80px its collapsed box already counted.
   check(
@@ -1121,6 +1126,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   // the point where the hover rows stop growing.
   t.dockCardEl.rect = { left: 20, top: 340, width: 200, height: 160 };
   await t.tick();
+  check("and the panel follows the card's top edge", t.mirror().style.bottom, "646px");
   check(
     "and the room follows the card's own growth",
     t.barStyle.props["--zen-media-collapsed-height"],
@@ -1146,29 +1152,6 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("and partway through the card's own expansion", midway, "calc(80px + 329px)");
   check("the widget gave up exactly the card's growth", 329 - 294, 235 - 200);
   check("and the panel did not move sideways", t.mirror().style.left, "26px");
-}
-
-// 30i. a frame from the page is drawn as it is, and closed
-{
-  mirrorActor.sent.length = 0;
-  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
-  const wgp = wgpFor(false, { selected: false, bcId: 27 });
-  await t.pipApi().handlePictureInPictureRequest(wgp, {});
-  t.controller().mirrorStarted(27, { width: 1920, height: 1080, paused: false }, mirrorActor);
-  const frame = {
-    displayWidth: 1920,
-    displayHeight: 1080,
-    closed: false,
-    close() {
-      this.closed = true;
-    },
-  };
-  t.controller().mirrorVideoFrame(27, { frame, time: 4, duration: 120, paused: false });
-  const canvas = t.mirror().firstElementChild;
-  check("the panel shows it", t.mirror().hasAttribute("waiting"), false);
-  check("drawn at the video's own shape", [canvas.width, canvas.height], [480, 270]);
-  check("the frame was drawn", canvas.drawn.width, 480);
-  check("and then closed, so it is not held", frame.closed, true);
 }
 
 // 30e2. a video that never produces a picture becomes a player window

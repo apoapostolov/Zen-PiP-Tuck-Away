@@ -8,6 +8,8 @@
  * reads as a wall of buttons.
  */
 
+/* The script places the panel from the card's own top edge every frame. `top`
+ * here is only what a panel looks like before it has been placed once. */
 #pip-tuck-away-mirror {
   position: absolute;
   top: 6px;
