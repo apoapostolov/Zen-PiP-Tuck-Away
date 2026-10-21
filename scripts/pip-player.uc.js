@@ -35,6 +35,15 @@
   const PEEK_STALE = 30000; // how long a remembered pointer position is trusted
   const EDGE_BAND = 12; // px from the screen edge where :hover is not trustworthy
   const REVEAL_COOLDOWN = 250; // after a retract, no new reveal at once
+  const BARE_ATTR = "pip-tuck-away-bare";
+  const BARE_STYLE_ID = "pip-tuck-away-bare-style";
+  const BARE_MOVE = 24; // px the pointer must travel before the controls return
+  const BARE_CSS = [
+    ":root[pip-tuck-away-bare] .control-item{opacity:0 !important;transition:none !important}",
+    // Firefox hides the cursor whenever the controls are hidden. In a bare
+    // reveal that leaves a pointer you cannot see, so keep it.
+    ":root[pip-tuck-away-bare] #controls{cursor:default !important}",
+  ].join("");
   const DRIFT_PX = 3; // movement by anyone else that counts as a drag
 
   const root = document.documentElement;
@@ -55,6 +64,8 @@
   let pollTimer = null;
   let tuckedTimer = null;
   let reopenAfter = 0;
+  let bare = false;
+  let bareAnchor = null;
   /** Screen coordinates of the pointer at its last event, so window moves cannot invalidate them. */
   let pointer = { x: 0, y: 0, at: 0 };
 
@@ -217,6 +228,7 @@
     clearLeave();
     stopPoll();
     root.removeAttribute("pip-peeking");
+    setBare(false);
   };
 
   const tuck = (side = null) => {
@@ -368,6 +380,51 @@
     return pointer.y >= b.bottom - EDGE_BAND;
   };
 
+  /**
+   * A reveal that comes from the pointer resting on the strip shows the video
+   * and nothing else. Firefox's own controls and the dim gradient wait for a
+   * pointer that actually travels, so peeking never looks like a click target.
+   */
+  const setBare = (on) => {
+    bare = !!on;
+    if (!bare) {
+      bareAnchor = null;
+      if (root.hasAttribute(BARE_ATTR)) {
+        root.removeAttribute(BARE_ATTR);
+      }
+      return;
+    }
+    if (!document.getElementById(BARE_STYLE_ID)) {
+      try {
+        const style = document.createElementNS("http://www.w3.org/1999/xhtml", "style");
+        style.id = BARE_STYLE_ID;
+        style.textContent = BARE_CSS;
+        document.documentElement.appendChild(style);
+      } catch (err) {
+        log("could not style the bare reveal", err);
+      }
+    }
+    // The window is about to move, so a position taken now means nothing. The
+    // first move after the reveal settles sets the anchor.
+    bareAnchor = null;
+    root.setAttribute(BARE_ATTR, "");
+  };
+
+  /** Controls come back only once the pointer has travelled in screen space. */
+  const watchBareMove = () => {
+    if (!bare || !peeked || revealing) {
+      return;
+    }
+    const here = { x: pointer.x, y: pointer.y };
+    if (!bareAnchor) {
+      bareAnchor = here;
+      return;
+    }
+    if (Math.hypot(here.x - bareAnchor.x, here.y - bareAnchor.y) >= BARE_MOVE) {
+      setBare(false);
+    }
+  };
+
   const startPoll = () => {
     stopPoll();
     pollTimer = setInterval(() => {
@@ -399,8 +456,10 @@
     revealing = true;
     clearLeave();
     root.setAttribute("pip-peeking", "");
+    setBare(true);
     glide(...flushPos(spot), GLIDE_MS, () => {
       revealing = false;
+      bareAnchor = null;
     });
     startPoll();
   };
@@ -442,6 +501,7 @@
     }
     event.preventDefault();
     event.stopPropagation();
+    setBare(false);
     toggle();
   };
 
@@ -459,6 +519,7 @@
     rememberPointer(event);
     if (peeked) {
       clearLeave();
+      watchBareMove();
     }
   };
 
@@ -957,6 +1018,8 @@
     try {
       document.removeEventListener("click", onZiaClick, true);
       document.getElementById(ZIA_STYLE_ID)?.remove();
+      document.getElementById(BARE_STYLE_ID)?.remove();
+      root.removeAttribute(BARE_ATTR);
       document.getElementById(OVERLAY_ID)?.remove();
       document.getElementById(PICKER_ID)?.remove();
       document.getElementById(OVERLAY_STYLE_ID)?.remove();
