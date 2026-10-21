@@ -408,8 +408,8 @@
   // and moved into it. The video is the real video, with its real sound, and
   // nothing is reloaded, so playback never restarts.
 
-  const DOCK_CLASS = "pip-tuck-away-dock";
   const DOCK_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
+  const DOCK_INSET = 6; // px between the panel and the widget it hangs from
   const DOCK_SYNC_MS = 120;
 
   const mediaCards = () => {
@@ -451,57 +451,38 @@
     return cards[0];
   };
 
-  const dockSpacer = (card) => {
-    const main = card?.querySelector?.(".zen-media-main-vbox");
-    if (!main) {
-      return null;
-    }
-    let spacer = main.querySelector?.(`.${DOCK_CLASS}`);
-    if (!spacer) {
-      spacer = window.document.createElementNS("http://www.w3.org/1999/xhtml", "div");
-      spacer.className = DOCK_CLASS;
-      spacer.setAttribute("aria-hidden", "true");
-      const controls = main.querySelector?.(".zen-media-controls-hbox") ?? null;
-      main.insertBefore(spacer, controls);
-    }
-    return spacer;
-  };
-
-  const clearSpacers = () => {
-    for (const spacer of window.document.querySelectorAll?.(`.${DOCK_CLASS}`) ?? []) {
-      spacer.style.height = "0px";
-    }
-  };
-
   const dockAspect = (win) => {
     const aspect = win?.__pipTuckAway?.aspect?.();
     return Number.isFinite(aspect) && aspect > 0.3 && aspect < 4 ? aspect : 16 / 9;
   };
 
-  /** Where the picture should sit, in screen pixels. */
+  /**
+   * Where the picture should sit, in screen pixels.
+   *
+   * The card itself is not touched. Zen's media toolbar deliberately keeps its
+   * collapsed height and lets the expanded cards float above it, so anything
+   * added inside a card is laid out against a box that was never meant to grow,
+   * and the card the mod is supposed to be joining is the thing that goes
+   * wrong. The panel therefore hangs above the widget, at the widget's width and
+   * the video's shape, and Zen's own markup is left exactly as it was.
+   */
   const dockGeometry = (card, win) => {
-    const spacer = dockSpacer(card);
-    if (!spacer) {
+    const bar = window.document?.querySelector?.(MEDIA_BAR);
+    const cardRect = card?.getBoundingClientRect?.();
+    const barRect = bar?.getBoundingClientRect?.();
+    if (!cardRect || !barRect || cardRect.width < 60) {
       return null;
     }
-    const cardWidth = card.getBoundingClientRect?.().width ?? 0;
-    const width = Math.max(80, Math.round(cardWidth - 12));
+    const width = Math.max(80, Math.round(cardRect.width - DOCK_INSET * 2));
     const limit = Math.round((window.innerHeight || 800) * DOCK_MAX_SHARE);
     const height = Math.max(45, Math.min(Math.round(width / dockAspect(win)), limit));
-    if (Math.abs((parseFloat(spacer.style.height) || 0) - height) > 1) {
-      spacer.style.height = `${height}px`;
-    }
-    const rect = spacer.getBoundingClientRect?.();
-    if (!rect || rect.width < 40 || rect.height < 20) {
-      return null;
-    }
     const originX = Number.isFinite(window.mozInnerScreenX) ? window.mozInnerScreenX : window.screenX;
     const originY = Number.isFinite(window.mozInnerScreenY) ? window.mozInnerScreenY : window.screenY;
     return {
-      x: originX + rect.left,
-      y: originY + rect.top,
-      width: rect.width,
-      height: rect.height,
+      x: originX + cardRect.left + DOCK_INSET,
+      y: originY + barRect.top - height - DOCK_INSET,
+      width,
+      height,
     };
   };
 
@@ -522,7 +503,6 @@
         dockedWindow.__pipTuckAway.undock?.();
       }
       dockedWindow = null;
-      clearSpacers();
       stopDockLoop();
       return;
     }
@@ -536,7 +516,6 @@
         api.undock?.();
       }
       dockedWindow = null;
-      clearSpacers();
       return;
     }
     const card = cardForPlayer(win);
@@ -547,7 +526,6 @@
         api.undock?.();
       }
       dockedWindow = null;
-      clearSpacers();
       return;
     }
     dockedWindow = win;
@@ -798,7 +776,6 @@
 
   const unload = () => {
     stopDockLoop();
-    clearSpacers();
     try {
       Services.ww.unregisterNotification(observer);
     } catch (err) {

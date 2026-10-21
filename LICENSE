@@ -1,7 +1,10 @@
 MIT License
 
 Copyright (c) 2026 Apostol Apostolov
-Portions derived from Zia, Copyright (c) 2026 z1nk
+
+The idea of tucking a picture-in-picture player into a screen edge comes from
+Zia (https://github.com/z1n-k/zia), Copyright (c) 2026 z1nk, MIT licensed. No
+source code is copied from it; see CREDITS.md for what the idea owes.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

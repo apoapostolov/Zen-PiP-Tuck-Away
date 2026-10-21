@@ -1,7 +1,7 @@
 {
   "id": "pip-tuck-away",
   "name": "PiP Tuck Away",
-  "description": "Tuck the PiP player into a screen edge, then bring it back by click, key or hover.",
+  "description": "Tuck the PiP player into a screen edge and play it in Zen's media card.",
   "author": "Apostol Apostolov",
   "version": "0.1.0",
   "license": "MIT",

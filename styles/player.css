@@ -189,14 +189,12 @@
 
 /* ---------- a bare reveal: no controls, no gradient, no hidden cursor -- */
 
-/* These rules can only do so much. Zia, which is installed alongside this mod,
- * carries :root[zia-dia] #controls:is(:hover, [showing], [keying]) .control-item
- * { opacity: 1 !important }, and its #controls::before is the scrim that reads as
- * the video dimming. That selector is stronger than anything written here, and
- * it is the pointer being on the player that triggers it. The script therefore
- * switches the whole layer off on the element itself, which no sheet can
- * outrank; these rules stay as the first pass and as the honest fallback when
- * Zia is absent. */
+/* These rules can only do so much. Whatever else is installed may carry a
+ * stronger rule of its own for the control bar, and a sheet cannot win that
+ * fight on specificity and load order alone; the pointer being on the player is
+ * what triggers those rules. The script therefore switches the whole layer off
+ * on the element itself, which no sheet can outrank. These rules stay as the
+ * first pass and as the honest fallback. */
 
 :root[pip-tuck-away-bare] .control-item {
   opacity: 0 !important;
@@ -374,16 +372,59 @@
   height: 3px;
 }
 
-/* ---------- Zia's own tuck button -------------------------------------- */
+/* ---------- the tuck button in the player's bar ------------------------ */
 
-/* Zia hides the button with display:none, and with an !important rule of its
- * own for the case where it thinks there is nowhere to tuck. Matching its
- * specificity here is not enough on its own, because two injected sheets win
- * or lose by nothing but their order; the script also sets this on the element
- * itself, where an inline !important outranks every sheet. */
-#controls .zia-pip-tuck-button,
-:root[zia-no-tuck] #controls .zia-pip-tuck-button {
-  display: inline-flex !important;
+/* One button, drawn by this mod. A tucking mod installed beside this one would
+ * leave two of them side by side, each moving the same window, so the other
+ * button is hidden. Its class is the only thing about that mod this file knows,
+ * and nothing here breaks when it is absent. */
+#controls .zia-pip-tuck-button {
+  display: none !important;
+}
+
+#pip-tuck-away-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  margin: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  -moz-window-dragging: no-drag;
+  transition: background-color 120ms linear, opacity 120ms linear;
+}
+
+#pip-tuck-away-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+#pip-tuck-away-button svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 140ms ease;
+}
+
+/* The chevron points at the edge the player would leave by. */
+#pip-tuck-away-button[data-side="left"] svg {
+  transform: rotate(180deg);
+}
+
+#pip-tuck-away-button[data-side="top"] svg {
+  transform: rotate(-90deg);
+}
+
+#pip-tuck-away-button[data-side="bottom"] svg {
+  transform: rotate(90deg);
+}
+
+#pip-tuck-away-button[aria-pressed="true"] {
+  opacity: 0.7;
 }
 
 /* Docked in Zen's media card the player is a panel, not a window: the picture
