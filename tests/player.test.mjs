@@ -137,6 +137,7 @@ function mk(prefsIn = {}, opts = {}) {
         return node;
       },
       remove() {
+        el.removed = true;
         if (el.id) byId.delete(el.id);
         if (el.parent) {
           const i = el.parent.children.indexOf(el);
@@ -288,7 +289,9 @@ function mk(prefsIn = {}, opts = {}) {
       id === "controls"
         ? controls
         : id === "minimize"
-          ? (opts.lateMinimize && !lateMinimizeHere ? null : minimize)
+          ? (opts.lateMinimize && !lateMinimizeHere) || minimize.removed
+            ? null
+            : minimize
           : byId.get(id) ?? null,
   };
 
@@ -400,8 +403,7 @@ function mk(prefsIn = {}, opts = {}) {
     window,
     doc: document,
     api: window.__pipTuckAway,
-    minimizeStyle: () => minimize.style.getPropertyValue("display"),
-    minimizePriority: () => minimize.style.getPropertyPriority("display"),
+    minimizeRemoved: () => !!minimize.removed,
     attrs,
     flush,
     prefs,
@@ -2022,26 +2024,27 @@ for (const r of results) {
 }
 
 
-// ---------- Zen's minimize button is not offered
+// ---------- Zen's minimize button is gone
 
-// 109. the sheet hides it, with the weight to beat Zen's own declaration
-{
-  check("the sheet hides Zen's minimize button", SHEET.includes("#minimize{display:none!important}"), true);
-}
-
-// 110. and the player hides it in the document as well
+// 109. the player takes Zen's minimize button out of the document
 {
   const t = mk({});
-  check("the button is hidden outright", t.minimizeStyle(), "none");
-  check("with the weight of an important declaration", t.minimizePriority(), "important");
+  check("the button is gone", t.doc.getElementById("minimize"), null);
+  check("and nothing was left behind to press", t.minimizeRemoved(), true);
+  check("with what happened written down for a look from outside", t.getPref("pip-tuck-away.minimize"), "removed");
 }
 
-// 111. a button that arrives late is still hidden
+// 110. a button that arrives late goes too
 {
   const t = mk({}, { lateMinimize: true });
-  check("nothing to hide yet", t.doc.getElementById("minimize"), null);
+  check("nothing to remove yet", t.doc.getElementById("minimize"), null);
   t.runTimers();
-  check("and once it is there", t.doc.getElementById("minimize")?.style.getPropertyValue("display"), "none");
+  check("and once it is there it is removed", t.minimizeRemoved(), true);
+}
+
+// 111. the sheet carries no rule for it, so no dead CSS is left behind
+{
+  check("no minimize rule in the player sheet", SHEET.includes("#minimize"), false);
 }
 
 

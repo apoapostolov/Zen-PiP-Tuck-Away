@@ -1874,37 +1874,60 @@
   Services.prefs.addObserver(PREF_DIRECTION, onOverlayPref);
   updateOverlay();
   /**
-   * Zen puts a minimize button in the player's corner. A tucked strip is this
-   * mod's answer to putting the player aside, and offering both is worse than
-   * offering one, so the button is hidden. The stylesheet does it too; this
-   * covers the case of a declaration that arrives with more weight than a sheet
-   * can answer, and of the button being added after this script runs.
+   * Zen puts a minimize button in the player's corner, in the player document's
+   * own markup. A tucked strip is this mod's answer to putting the player aside,
+   * and offering both is worse than offering one, so the button goes.
+   *
+   * Removed rather than hidden: a stylesheet rule can lose to a declaration that
+   * arrives later or with more weight, and a button that is merely invisible
+   * still takes a press where it sits. Nothing in the player's own code looks the
+   * element up, so taking it out costs nothing; if a document ever refuses the
+   * removal, hiding it is the fallback.
    */
   const MINIMIZE_ID = "minimize";
+  const MINIMIZE_NOTE = "pip-tuck-away.minimize";
 
-  const hideMinimize = () => {
+  /**
+   * What became of the button is written down, because "it is still there" has
+   * more than one cause: the player half may not have run at all, it may have
+   * run before the button existed, or the document may have refused the removal.
+   * A pref says which, from the machine, without a console.
+   */
+  const noteMinimize = (what) => {
+    try {
+      Services.prefs.setStringPref(MINIMIZE_NOTE, what);
+    } catch (err) {
+      // A player without prefs still gets the button out of the way.
+    }
+  };
+
+  const removeMinimize = () => {
     try {
       const button = document.getElementById(MINIMIZE_ID);
-      if (!button?.style) {
-        return false;
-      }
-      if (button.style.getPropertyValue("display") === "none") {
+      if (!button) {
+        noteMinimize("absent");
         return true;
       }
-      button.style.setProperty("display", "none", "important");
+      if (typeof button.remove === "function") {
+        button.remove();
+      } else {
+        button.style?.setProperty("display", "none", "important");
+      }
+      noteMinimize("removed");
       return true;
     } catch (err) {
+      noteMinimize(`failed: ${err?.message ?? err}`);
       return false;
     }
   };
 
   // #controls can arrive after this script in a freshly opened player.
-  hideMinimize();
+  removeMinimize();
   for (const delay of [120, 400, 1000]) {
     settleTimers.push(
       setTimeout(() => {
         updateOverlay();
-        hideMinimize();
+        removeMinimize();
       }, delay)
     );
   }
@@ -2176,7 +2199,7 @@
     destroy,
     isTucked: () => state === "tucked",
     size: () => ({ want: wantedSize(), at: [W(), H()] }),
-    minimize: () => hideMinimize(),
+    minimize: () => removeMinimize(),
     place: () => ({ want: wantedPlace(), home, spot }),
     stats: () => ({ state, spot, home, tracking, sliver, peeked, modTarget, loadedAt: LOADED_AT }),
     why: () => ({
