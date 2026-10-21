@@ -859,23 +859,86 @@
     return true;
   };
 
-  const onClickPlayer = (event) => {
-    if (event.button !== 0) {
+  const setLayerInert = (on) => {
+    for (const node of layerControls()) {
+      if (on) {
+        node.style?.setProperty?.("pointer-events", "none", "important");
+      } else {
+        node.style?.removeProperty?.("pointer-events");
+      }
+    }
+  };
+
+  let lastPressAt = 0;
+
+  /**
+   * A press on the player, from either route it can arrive by.
+   *
+   * Both halves matter. A press over one of the player's own controls is that
+   * control's business. A press anywhere else on a bare peek wants the controls
+   * and gets them at once, because showing them moves nothing; their buttons
+   * stay inert for the arbitration window so a second press still lands on the
+   * control layer, which is the only place the player's own double click
+   * becomes fullscreen.
+   */
+  const handlePress = (detail) => {
+    const now = Date.now();
+    const isDouble = detail > 1 || (lastPressAt > 0 && now - lastPressAt < 400);
+    lastPressAt = now;
+    if (isDouble) {
+      // A second press is the platform's double click. The action the first
+      // press scheduled is left to run: it either releases the inert hold, or
+      // moves the window 250ms later, by which time the platform has finished
+      // with the double click, and a reveal refuses to run in fullscreen.
+      if (clickTimer) {
+        return;
+      }
+      if (detail > 1) {
+        return;
+      }
+    }
+    if (peeked && bare) {
+      setBare(false);
+      offerControls();
+      setLayerInert(true);
+      cancelScheduledClick();
+      clickTimer = setTimeout(() => {
+        clickTimer = null;
+        setLayerInert(false);
+      }, CLICK_SPLIT);
       return;
     }
-    if (event.detail > 1) {
-      cancelScheduledClick();
+    if (state !== "tucked" || peeked) {
+      return;
+    }
+    const at = { x: window.screenX, y: window.screenY };
+    cancelScheduledClick();
+    clickTimer = setTimeout(() => {
+      clickTimer = null;
+      if (Math.abs(window.screenX - at.x) > 4 || Math.abs(window.screenY - at.y) > 4) {
+        return; // the window moved under the press: that is a drag, not a click
+      }
+      actOnClick();
+    }, CLICK_SPLIT);
+  };
+
+  const onClickPlayer = (event) => {
+    if (event.button !== 0) {
       return;
     }
     if (isPlayerChrome(event.target)) {
       return;
     }
-    cancelScheduledClick();
-    clickTimer = setTimeout(() => {
-      clickTimer = null;
-      actOnClick();
-    }, CLICK_SPLIT);
+    handlePress(event.detail);
   };
+
+  /**
+   * Most of the player is a window-drag region, and Gecko sends those presses as
+   * `draggableregionleftmousedown` instead of a mousedown or a click. Without
+   * this route a bare peek only showed its controls when the press happened to
+   * land on one of the player's own buttons, which is the middle of the picture.
+   */
+  const onDragRegionPress = () => handlePress(0);
 
   const onResize = () => {
     updateOverlay();
@@ -1184,6 +1247,9 @@
 
   document.addEventListener("contextmenu", onContextMenu, true);
   document.addEventListener("click", onClickPlayer, true);
+  for (const node of [window, document]) {
+    node.addEventListener("draggableregionleftmousedown", onDragRegionPress, true);
+  }
   document.addEventListener("mousemove", onMouseMove, true);
   document.addEventListener("mouseenter", onMouseEnter, true);
   document.addEventListener("mouseleave", onMouseLeave, true);
@@ -1819,6 +1885,9 @@
     settleTimers = [];
     document.removeEventListener("contextmenu", onContextMenu, true);
     document.removeEventListener("click", onClickPlayer, true);
+    for (const node of [window, document]) {
+      node.removeEventListener("draggableregionleftmousedown", onDragRegionPress, true);
+    }
     cancelScheduledClick();
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mouseenter", onMouseEnter, true);

@@ -58,6 +58,8 @@ Carry a tucked player to a different edge and it tucks there. The test is the on
 
 ## Clicks and double clicks
 
+A press anywhere on the frame counts, which took a second route to get right: most of the player is a window-drag region, and the platform sends those presses as `draggableregionleftmousedown` rather than a click, so the only clicks that arrived were the ones landing on the player's own buttons. That is why showing the controls used to need a press in the middle of the picture.
+
 A single click on a tucked strip brings the player out, even with the hover-reveal setting off, because a person asking for the player is not an accident of geometry. A click on the player once it is out shows the controls, and they stay for as long as the pointer does instead of disappearing on a timer of their own.
 
 A double click still means fullscreen, which is why no single-click action runs straight away: it waits a quarter of a second, and a second click cancels it. The player itself only goes fullscreen when the double click's target is the control layer, so the tucked strip's chevron badge draws without taking any press, and the control layer stays a hit target while tucked instead of being switched off. Anything painted over the strip that accepted the press used to eat that gesture.
