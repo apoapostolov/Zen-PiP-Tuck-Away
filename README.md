@@ -118,14 +118,11 @@ Restart Zen afterwards, because script mods load at startup.
 
 One requirement applies to every Sine mod installed from a repository rather than the store: JavaScript must be allowed. Check that `sine.allow-unsafe-js` is `true` in `about:config`, otherwise the mod installs, appears enabled, and does nothing at all. Mods that ship scripts run with full browser privileges, so read the two files in `scripts/` before you trust them. They are short and they only move a window.
 
-## When there is no media card to keep it inline
+## Pop the player out when leaving Zen
 
-A card that exists in the markup is not a card on screen. The toolbar that holds it lives in the sidebar, and a collapsed or slid-away sidebar takes it out of view while the element stays present and not `hidden`. The check therefore measures the card: a zero-size or off-viewport toolbar counts as no card, and the held request is handed to the real player.
+Zen has a media card in the sidebar for whatever is playing in a background tab, and it appears on its own. It needs no help, and an earlier version of this mod held the player back on the theory that the card would drive the video instead. That was wrong twice over: the card shows up regardless, so the only effect of holding the request back was a player that arrived late or not at all, and a video with no card anywhere both opened a player and made the first tab switch behave differently from the second.
 
-What the mod decides is written to `pip-tuck-away-trace.log` in the profile when the state cannot be answered from a test. One line per decision: which route a request took, what the card check measured, and whether the player window opened. Turn it off with `pip-tuck-away.trace` set to false; it rewrites itself past 96 KB.
-
-
-Keeping the video in the page only makes sense while Zen's own media card is there to drive it. That card lives in a toolbar of its own, is switched on by `zen.mediacontrols.enabled`, and does not appear at all in some layouts. So the mod now gives it a beat: if no card has turned up within 800ms of holding a request back, the request is handed to the real player and the window opens after all. A video with no window and no card is worse than the player the platform asked for, and the card being absent is not something a mod can fix.
+Nothing is held back now. A tab switch gives you the player the platform opens, every time, on the first switch. The setting covers the one case the platform cannot: leaving Zen while the video's own tab is in front sends no automatic request at all, so the mod asks that tab for a player itself. The window it opened is remembered, and coming back to Zen on the video's own tab folds it away again; a player you asked for yourself is never touched.
 
 ## When the player folds away by itself
 

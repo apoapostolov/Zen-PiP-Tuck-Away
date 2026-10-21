@@ -90,7 +90,7 @@
   },
   {
     "property": "pip-tuck-away.inline-in-zen",
-    "label": "Integrate PiP in the player widget",
+    "label": "Pop the player out when leaving Zen",
     "type": "checkbox",
     "defaultValue": false
   },

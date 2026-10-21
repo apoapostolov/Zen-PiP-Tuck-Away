@@ -277,17 +277,21 @@
 
   // ---------- keep playback inside Zen until the browser is left
   //
-  // Firefox opens the player window in two ways: the user asks for it, or its
-  // own auto toggle fires when a playing tab is hidden by a tab switch. Only
-  // the second one is redirected, and Zen's media card in the sidebar already
-  // shows the same video with its own controls while the tab is in the
-  // background. The card hides itself whenever the player is in PiP mode, so
-  // staying inline is what keeps it visible.
+  // Firefox opens the player window in two ways: the user asks for it, or its own
+  // auto toggle fires when a playing tab is hidden by a tab switch.
+  //
+  // An earlier version held the automatic request back, on the theory that Zen's
+  // sidebar media card would drive the video instead. It does not work that way
+  // in practice: the card shows up by itself for any playing background tab, so
+  // the only thing the hold added was a player that arrived late or not at all,
+  // while a video with no card anywhere both showed a player and confused the
+  // first tab switch with the second. Nothing is held back now. A tab switch
+  // behaves exactly as the platform intends, and the mod asks for a player only
+  // in the one case the platform cannot handle: leaving Zen with the video's own
+  // tab in front.
 
-  let suppressed = null; // the request kept in the page
-  let lastRequest = null; // the request we floated last, to float it again
   let requestCooldownUntil = 0; // two focus blurs in a row must not ask twice
-  let floatedWindow = null; // the player opened because Zen lost focus
+  let floatedWindow = null; // the player this mod asked for on leaving Zen
   let trueOriginal = null; // the unwrapped request handler
 
   const pipApi = () => {
@@ -344,23 +348,11 @@
   // worse than the player the platform asked for.
 
   const MEDIA_BAR = "#zen-media-controls-toolbar";
-  const MEDIA_CARD_GRACE = 800; // ms the card is given to appear
-
-  const mediaControlsEnabled = () => {
-    try {
-      return Services.prefs.getBoolPref("zen.mediacontrols.enabled", true);
-    } catch (err) {
-      return true;
-    }
-  };
 
   /**
-   * Where Zen's media card is, in one word, for the decision and for the trace.
-   *
-   * Presence in the markup is not the question. The card can be in the tree,
-   * not hidden, and still be nowhere on screen: the toolbar it lives in sits in
-   * the sidebar, and a collapsed or slid-away sidebar takes it with it. A card
-   * nobody can see is no reason to hold a player back.
+   * Whether Zen's media card is anywhere the user can see it, in one word, for
+   * the trace only. Nothing is decided on it any more, but it is the first thing
+   * to check when a video seems to be nowhere.
    */
   const mediaCardState = () => {
     try {
@@ -397,31 +389,6 @@
     }
   };
 
-  const mediaCardShown = () => mediaCardState() === "shown";
-
-  let cardTimer = null;
-
-  /** Give the card its moment, then hand the request to the real player. */
-  const watchMediaCard = () => {
-    if (cardTimer) {
-      clearTimeout(cardTimer);
-    }
-    cardTimer = setTimeout(() => {
-      cardTimer = null;
-      if (!suppressed) {
-        trace("card check: nothing held any more");
-        return;
-      }
-      const state = mediaCardState();
-      if (state === "shown") {
-        trace("card check: card on screen, the video stays in the page");
-        return;
-      }
-      trace(`card check: ${state}, opening the player instead`);
-      floatSuppressed();
-    }, MEDIA_CARD_GRACE);
-  };
-
   const installPipHook = () => {
     const api = pipApi();
     if (!api || api.handlePictureInPictureRequest.__pipTuckAway) {
@@ -429,61 +396,14 @@
     }
     trueOriginal = api.handlePictureInPictureRequest.bind(api);
     const wrapped = async (wgp, videoData) => {
-      const keepInline =
-        pref(INLINE_PREF, false) &&
-        mediaControlsEnabled() &&
-        requestedByTabSwitch(wgp) &&
-        requestingWindowFocused(wgp);
       trace(
         `request: tabSwitch=${requestedByTabSwitch(wgp)} focus=${requestingWindowFocused(wgp)} ` +
-          `inline=${pref(INLINE_PREF, false)} controls=${mediaControlsEnabled()} card=${mediaCardState()} ` +
-          `=> ${keepInline ? "held" : "passed to the platform"}`
+          `inline=${pref(INLINE_PREF, false)} card=${mediaCardState()} => passed to the platform`
       );
-      if (keepInline) {
-        suppressed = { wgp, videoData };
-        lastRequest = suppressed;
-        watchMediaCard();
-        return undefined;
-      }
       return trueOriginal(wgp, videoData);
     };
     wrapped.__pipTuckAway = true;
     api.handlePictureInPictureRequest = wrapped;
-  };
-
-  /** Zen lost focus: hand the suppressed video to the real player window. */
-  const floatSuppressed = () => {
-    if (!suppressed || !trueOriginal || (floatedWindow && !floatedWindow.closed)) {
-      return;
-    }
-    const { wgp, videoData } = suppressed;
-    suppressed = null;
-    trace("floating the held request");
-    Promise.resolve(trueOriginal(wgp, videoData))
-      .then(() => {
-        const win = Services.wm.getMostRecentWindow("Toolkit:PictureInPicture");
-        trace(`float finished; player window ${win ? "open" : "missing"}`);
-        if (!win) {
-          return;
-        }
-        floatedWindow = win;
-        win.addEventListener(
-          "unload",
-          () => {
-            if (floatedWindow === win) {
-              floatedWindow = null;
-            }
-          },
-          { once: true }
-        );
-      })
-      .catch((err) => {
-        log("could not float the player after leaving Zen", err);
-        lastRequest = null;
-        suppressed = null;
-        requestCooldownUntil = 0;
-        requestFromSelectedTab();
-      });
   };
 
   /**
@@ -519,7 +439,7 @@
    * for that tab, which is the same toggle the platform uses.
    */
   const requestFromSelectedTab = () => {
-    if (!pref(INLINE_PREF, false) || suppressed) {
+    if (!pref(INLINE_PREF, false)) {
       return;
     }
     if (Services.wm.getMostRecentWindow("Toolkit:PictureInPicture")) {
@@ -537,16 +457,50 @@
       const actor = browser.browsingContext?.currentWindowGlobal?.getActor(
         "PictureInPictureLauncher"
       );
-      actor?.sendAsyncMessage?.("PictureInPicture:AutoToggle");
+      if (!actor) {
+        return;
+      }
+      actor.sendAsyncMessage?.("PictureInPicture:AutoToggle");
+      trace("asked the selected tab for a player");
+      watchFloated();
     } catch (err) {
       log("could not ask for a player on leaving Zen", err);
     }
   };
 
-  /** The window lost focus: float what we kept, or ask for what is playing. */
+  /**
+   * Remember the player this mod asked for. A window that the mod did not open
+   * is left alone on return, because the user asked for it, and only a window
+   * opened by leaving Zen is folded away when Zen comes back.
+   */
+  const watchFloated = () => {
+    let tries = 0;
+    const look = () => {
+      const win = Services.wm.getMostRecentWindow("Toolkit:PictureInPicture");
+      if (win) {
+        floatedWindow = win;
+        trace("the player opened after asking; it folds away on return");
+        win.addEventListener(
+          "unload",
+          () => {
+            if (floatedWindow === win) {
+              floatedWindow = null;
+            }
+          },
+          { once: true }
+        );
+        return;
+      }
+      if (++tries < 10) {
+        setTimeout(look, 120);
+      }
+    };
+    setTimeout(look, 120);
+  };
+
+  /** The window lost focus: ask the tab in front for a player, once. */
   const onLeftZen = () => {
-    if (suppressed) {
-      floatSuppressed();
+    if (floatedWindow && !floatedWindow.closed) {
       return;
     }
     requestFromSelectedTab();
@@ -624,10 +578,6 @@
    * the video's own tab still folds it away.
    */
   const foldBack = () => {
-    if (cardTimer) {
-      clearTimeout(cardTimer);
-      cardTimer = null;
-    }
     const win = floatedWindow;
     if (!win || win.closed) {
       floatedWindow = null;
@@ -644,21 +594,10 @@
     }
     floatedWindow = null;
     setTimeout(() => {
-      if (win.closed) {
-        // Closed by the player itself: return to tab, the close button, the
-        // chord. Nothing is waiting to be piped, so drop the kept request
-        // instead of floating a video the user just sent back to the page.
-        suppressed = null;
-        lastRequest = null;
-        return;
-      }
-      closeFloated(win);
-      // The video is still the same video, so a second departure can float it
-      // again without waiting for another tab switch to ask for it.
-      const request = lastRequest;
-      suppressed = request?.wgp?.browsingContext ? request : null;
-      if (!suppressed) {
-        lastRequest = null;
+      // Closed by the player itself, through return to tab or the close button,
+      // before the fold got there: nothing left to do.
+      if (!win.closed) {
+        closeFloated(win);
       }
     }, FOLD_DELAY);
   };
@@ -666,7 +605,7 @@
   installPipHook();
 
   trace(
-    `browser half loaded; inline=${pref(INLINE_PREF, false)} controls=${mediaControlsEnabled()} ` +
+    `browser half loaded; inline=${pref(INLINE_PREF, false)} ` +
       `card=${mediaCardState()} player=${Services.wm.getMostRecentWindow("Toolkit:PictureInPicture") ? "open" : "none"}`
   );
   // Firefox fires "activate" on chrome windows. Older builds and some paths
