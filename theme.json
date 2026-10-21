@@ -3,7 +3,7 @@
   "name": "PiP Tuck Away",
   "description": "Tuck the player into a screen edge, and show the video in Zen's media widget.",
   "author": "Apostol Apostolov",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "license": "MIT",
   "homepage": "https://github.com/apoapostolov/Zen-PiP-Tuck-Away",
   "readme": "https://raw.githubusercontent.com/apoapostolov/Zen-PiP-Tuck-Away/main/README.md",

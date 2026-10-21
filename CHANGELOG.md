@@ -1,43 +1,53 @@
 # Changelog
 
-## 0.1.0
+## 1.0.0 (2026-10-22)
 
-First release. Everything below landed before the first tagged version, so it
-all belongs to this one.
+First release. Zen's picture-in-picture player gets somewhere to hide: right-click
+it and it slides into the nearest screen edge, leaving a strip of video you can
+still see. Ask for it back and it comes out, still playing from where it was,
+because nothing ever reloads.
 
-- Right-clicking the picture-in-picture player tucks it into the nearest screen edge, and right-clicking again brings it back.
-- `Ctrl+Alt+T` toggles tucked and untucked. The chord is installed on every Zen chrome window, including the player, and is left alone while no player is open, so the browser's own reopen-closed-tab keeps working when there is nothing to tuck.
-- Tuck Control Overlay, on by default: a band of the video, 20% of the width and 90% of the height on the side it will tuck into, with an arrow and the words Tuck Away. A press tucks, a right-click opens a small direction map, and the choice is saved. It works with or without Zia, and sits below Firefox's own controls so they keep their clicks.
-- Tuck Direction, a dropdown: Smart, Right, Top, Left or Bottom. Smart measures the player's centre against all four edges. The top edge is now a supported direction alongside left, right and bottom.
-- Optional hover peek: hovering the tucked strip slides the player fully into view until the pointer leaves the video. Off by default.
-- The hover peek no longer strobes when the pointer is parked on the screen edge. That band is the window's resize border and can stop reporting hover while the pointer has not moved, so a pointer within 12px of the tucked edge counts as present, and the tucked state is watched rather than waiting for an enter event. A reveal also waits a quarter second after folding away before it can come back.
-- A hover reveal is bare and unfrosted: Firefox's control bar, its buttons and the dark gradient along the bottom are suppressed, the cursor stays visible, and the tucked frost is lifted on the video element itself so a peek is plain video. A left press anywhere on the revealed player hands the controls over for a couple of seconds; moving the pointer never does. A retract or a right-click ends the bare state too.
-- The hover peek is sticky: the reveal is kept by a screen-space band around the player and by the document's own hover state, never by pointer idleness, so a still pointer and a window sliding under it cannot collapse it. Departures wait out a grace period, movement during the reveal is ignored, dragging the strip out releases the tuck, and fullscreen never reveals.
-- Auto tuck on PiP switch: a new player opens already tucked, attaching before the player document finishes loading and re-applying the tucked position over the first 320ms so the browser's own position restore cannot undo it. Off by default.
-- Pop the player out when leaving Zen. Zen's media card in the sidebar appears by itself for a playing background tab, and holding the player back so the card could drive it was a mistake: the card showed up anyway, so a held request meant the first tab switch showed nothing and a later one produced a player, and a video with no card anywhere did both. Nothing is held back now, a tab switch gives you the platform's player on the first switch, and the setting covers only the case the platform cannot handle: leaving Zen with the video's own tab in front produces no automatic request, so the mod asks that tab for a player and folds it away when Zen comes back.
-- The tuck button is drawn by this mod, in the player's own control bar: it tucks, it comes back, and a right-click on it opens the direction map. Nothing else needs to be installed for that, and no code is taken from another project. If a tucking mod is installed beside this one, its button gives way to this one and its own tucking preference is switched off at startup, so only one thing moves the window.
+**Tucking it away**
 
-- **Integrate in Sidebar Media Controls (slow framerate, experimental)**, on by default: while the browser is in front, a playing video in another tab is drawn in the media widget and no player window is opened, so picture-in-picture is never in use and keeps its own size, place and tucked edge. The picture is a frame copy made by a content actor and painted in a canvas in the sidebar, at the widget's width and the video's own shape, in room made inside the toolbar. The page keeps playing the video and keeps its sound, a click on the picture plays or pauses, and two small buttons open a real player. Protected video cannot be copied, so a page with a media key system opens a normal player window at its own remembered place. Leaving the browser hands the video to the standard picture-in-picture, and coming back to the browser puts it in the widget again.
+- Right-click anywhere on the player.
+- Press the chevron in the player's own controls. It points at the edge it will
+  leave by, and a right-click on it picks the edge yourself.
+- `Ctrl+Alt+T` works from any Zen window, a second browser window included.
+- Drag the player past a screen edge and let go.
 
-- The panel is shown only while Zen is the window in front. Leaving the browser hands the video to real picture-in-picture at its remembered place, floating over whatever comes next. Coming back to Zen shows it in the widget again. Leaving Zen also no longer asks the tab for a second player when one is already on screen, which is what used to read as the browser switching to normal picture-in-picture; an existing player is adopted instead, so it is the one that pops out and the one that folds away on return.
-- Fixed: untucking a player no longer sends it to the sidebar. The widget used to borrow a real player window and park it in the widget's slot, so a player closed or untucked while it was parked remembered the sidebar's place as its own. Nothing moves a player window any more: the panel is pixels in the sidebar, and the place a player remembers, its size and its tucked edge are its own.
-- The widget now follows one rule through every case: it shows the video of the tab that was just left, as long as that tab has a video at all. A paused video shows like a playing one, a tab with no video leaves the panel alone instead of emptying it, a tab that was only asked a moment ago is let go of if you arrive at it first, and a closed tab takes its panel with it.
-- Leaving the browser hands a playing video to the standard player and leaves a paused one alone, since the platform never moved a paused video either, and coming back folds that player away and puts the video back in the widget.
-- Fixed: the widget panel had no stylesheet at all. Its sheet sat in a subfolder while the mod's installed record named no style file, so the browser loaded nothing and the panel appeared at the wrong size with its buttons loose over the picture. The sheet is now `chrome.css` at the mod root, the name every other mod uses, and the record names it.
-- The panel is measured with the widget on every frame, so a picture that arrives before the widget has a card to measure still ends up the right size.
-- The video in the widget copies less and copies smarter. Firefox has no frame-stream API on the page (the window-scoped one is a compatibility shim built from a canvas), so the picture is a copy: it is now copied at the size the sidebar actually shows it, 320px on the long edge rather than 480, and a copy is asked for when the video presents a frame rather than on a clock, so nothing is read back twice. One picture is sent the moment the copy starts, so a paused video is never an empty panel.
-- The setting that turns the widget on says so: **Integrate in Sidebar Media Controls (slow framerate, experimental)**. A copy read back on the CPU cannot match the video's own rate, and a setting that quietly delivers a lower frame rate is worse than one that names it. The italic hints that used to sit beside setting names are gone; the low frame rate is the one thing a name has to carry.
-- What the picture costs is reported: a line every two seconds in `trace.log`, in the mod's own folder, with the frames a second, the milliseconds a frame takes, and the size copied. The trace also lands there now rather than in the profile root, and a trace that cannot be written says so in a pref instead of failing silently.
-- The panel hangs off the card's own top edge rather than off the top of the toolbar, so a room that has not caught up yet cannot leave it sitting over the card. It used to take a hover to put it right.
-- The room the widget gives up now follows the card on the frame the card moves, with the toolbar's own height animation switched off while the panel is shown. The panel stays six pixels above the card's top edge through the card's hover expansion instead of jumping after it, and the amount reserved is the card's exact height rather than a guess capped at a fixed number.
-- **Default PiP size** and **Default PiP location**, both Remember Last by default. A size resizes the player as it opens, keeping the shape the video already has, and brings it back on screen if it would have grown past an edge. A place opens the player there and tucked, with the corners tucking into the side edge they are nearest and the middles into the flat edge they name, written into the mod's own position memory so untucking returns to it.
-- The settings are grouped the way the mod works: **Tuck away** (the strip), **The player** (its size and place), and **Sidebar media controls** (the widget). The old heading was a text entry the settings renderer does not know, which logged an error every time the page was built; the headings are real separators now.
-- Zia's minimize button is taken out of the player. A tucked strip is this mod's answer to putting the player aside, and two ways to do it is one too many. The platform's own `#minimize` is deliberately left alone, because Zia clicks it to close a player without pausing the video. What became of the button is written to `pip-tuck-away.minimize`, so a player that still shows one can be diagnosed from the machine instead of guessed at.
-- A peek survives Zia's own tuck. A peek slides the player out of its strip, which Zia reads as a drag towards an edge, so it tucked the player straight back and the reveal snapped shut. While a peek is open this mod holds Zia's tucking preference off and hands it back when the peek ends, or when the player closes.
-- The trace file is written for the first time. Appending to a file that does not exist fails in Gecko, and every trace write had been failing with `NS_ERROR_FILE_NOT_FOUND` in silence, which is why "read the trace" kept finding nothing. A missing file is created now, and a write that still fails says so in a pref.
-- **Tucked PiP Frosted Glass**, on by default: the strip a tucked player leaves is frosted, and turning it off leaves plain video. It takes effect on a player that is already open, not at the next tuck.
-- The widget draws nothing until a real frame has arrived. Until then the panel is not in the layout at all, so there is no black box standing in for a video and no room taken from the sidebar, and a video whose picture never arrives becomes a player window instead of an empty panel.
-- Going back to the tab a player came from closes it and puts the video back in the page. Firefox's own version of that only fires for the players it registered as caught by a tab switch, and that registration depends on the tab's docshell being inactive at the moment the player opened, so a player opened while the docshell was already awake stays open for good. The mod keeps its own note of which tabs a player was taken from and closes that player when the tab comes forward, on a tab switch or on returning to Zen.
-- The chord is `Ctrl+Alt+T`, and nothing listens outside the browser. It moved off `Ctrl+Shift+T`, which is the browser's own reopen-closed-tab and was never this mod's to take, and it is not claimed unless a player window exists. An AltGr press is ignored, since most keyboard layouts report AltGr as ctrl+alt.
-- Settings section with a header, one sentence, and the switches and dropdown, nothing else.
-- The player keeps its size while tucking and returns with a 16px margin inside the screen.
+**The strip**
+
+- Hover it and the player slides back out while your pointer is on the video,
+  then tucks itself again when you leave.
+- It keeps 24px on screen, or 48 or 72 if you want more of it.
+- Frosted glass by default, so it reads as a handle. Turn that off for plain
+  video.
+- Drag the strip along its edge to move it, or pull it free to keep the player
+  out.
+- Press the overlay on the video to tuck, right-click it to pick the direction.
+
+**Where it lives**
+
+- Where you last left the player is where the next video opens, tucked or not.
+- Want the same spot every time? Pick a default corner, or a default size from
+  Very Small to Very Large.
+
+**In the sidebar**
+
+- Zen's media widget can show the video itself instead of opening a player, so
+  picture-in-picture stays yours and is what appears when you leave the browser.
+  The widget's picture is a copy, so it runs at a lower frame rate, and
+  protected video opens a normal player instead.
+
+**With Zia**
+
+- Zia is not required, and it is not broken. Its tuck button steps aside for the
+  one here, and its minimize button is gone since a tucked strip already does
+  that job. Switch Zia's own tucking back on and hovering a strip still works.
+
+**Worth knowing**
+
+- `Ctrl+Alt+T` works in Zen's windows. A browser mod cannot take a chord while
+  another application has focus.
+- The widget cannot show protected video, and its picture is a copy rather than
+  the player.
