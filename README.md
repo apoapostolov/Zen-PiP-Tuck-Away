@@ -38,7 +38,7 @@ The player carries a strip that tucks it. It is not a small pill beside the cont
 
 Press it and the player parks against that edge. Right-click it and a small map of the directions opens, the same idea as Zia's picker: Smart in the middle, with Right, Top, Left and Bottom around it, the current choice lit. Pick one and the strip moves to that side, and the setting is saved, so it holds for the next video too.
 
-**Smart** means the edge the player is nearest to when it has no fixed direction. It measures from the player's centre to all four edges, so a player sitting in the top half of the screen goes up rather than sideways.
+**Smart** means the edge the player is nearest to when it has no fixed direction, measured as the gap between the player's own edge and each screen edge. Sideways wins unless the top or bottom is clearly closer, because a side tuck leaves the video as a tall strip rather than a thin bar. A player sitting in a corner tucks into the side of that corner; only a player parked near the middle of the top or bottom goes up or down. The measurement uses the player's position clamped into the screen first, so a position saved on another display or scaling cannot decide it, and a player that opens mostly off screen is pulled back into view before anything else happens.
 
 The strip is a child of Firefox's own `#controls` layer, placed before everything else in it, so the control bar, the close and minimise buttons and Zia's own controls all sit above it and keep their clicks. Where those cover it, they win; the rest of the strip is the tuck target.
 

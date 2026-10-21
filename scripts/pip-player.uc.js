@@ -105,18 +105,63 @@
     return { left, top, right: left + s.availWidth, bottom: top + s.availHeight };
   };
 
-  /** The edge the window is closest to. */
+  /**
+   * The edge a tuck should use.
+   *
+   * Measured as the gap between the window's own edge and each screen edge,
+   * with the window pulled inside the screen box first so a position restored
+   * from a different display or scaling cannot decide it. A sideways tuck
+   * leaves the video as a tall strip, which is what a player wants, so a
+   * vertical edge has to be clearly closer to win. Centre distance was the old
+   * measure and it parked wide, short windows on the top or bottom edge even
+   * when they sat in a corner.
+   */
+  const EDGE_BIAS = 1.25;
   const nearestSide = () => {
     const b = screenBox();
-    const cx = window.screenX + W() / 2;
-    const cy = window.screenY + H() / 2;
-    const distance = {
-      left: cx - b.left,
-      right: b.right - cx,
-      top: cy - b.top,
-      bottom: b.bottom - cy,
+    const w = W();
+    const h = H();
+    const x = clamp(window.screenX, b.left, b.right - w);
+    const y = clamp(window.screenY, b.top, b.bottom - h);
+    const gap = {
+      left: x - b.left,
+      right: b.right - (x + w),
+      top: y - b.top,
+      bottom: b.bottom - (y + h),
     };
-    return Object.keys(distance).sort((a, z) => distance[a] - distance[z])[0];
+    const sideways = Math.min(gap.left, gap.right);
+    const standing = Math.min(gap.top, gap.bottom) * EDGE_BIAS;
+    if (standing < sideways) {
+      return gap.top <= gap.bottom ? "top" : "bottom";
+    }
+    return gap.left <= gap.right ? "left" : "right";
+  };
+
+  /**
+   * A player restored from a position saved on another display can open mostly
+   * off screen, where every edge looks far away. Pull it back when little of it
+   * is visible, so tucking never starts from coordinates nobody can see.
+   */
+  const rescuePosition = () => {
+    if (state !== "free" || document.fullscreenElement) {
+      return;
+    }
+    const b = screenBox();
+    const w = W();
+    const h = H();
+    if (!w || !h) {
+      return;
+    }
+    const overX = Math.min(window.screenX + w, b.right) - Math.max(window.screenX, b.left);
+    const overY = Math.min(window.screenY + h, b.bottom) - Math.max(window.screenY, b.top);
+    const visible = Math.max(0, overX) * Math.max(0, overY);
+    if (visible >= w * h * 0.6) {
+      return;
+    }
+    window.moveTo(
+      Math.round(clamp(window.screenX, b.left + MARGIN, b.right - w - MARGIN)),
+      Math.round(clamp(window.screenY, b.top + MARGIN, b.bottom - h - MARGIN))
+    );
   };
 
   /** Position with only a strip of the window left on screen. */
@@ -521,6 +566,7 @@
       clearLeave();
       watchBareMove();
     }
+    refreshSide();
   };
 
   const onMouseEnter = (event) => {
@@ -552,6 +598,8 @@
 
   const onResize = () => {
     updateOverlay();
+    refreshSide();
+    rescuePosition();
     if (state !== "tucked") {
       return;
     }
@@ -938,6 +986,18 @@
     return overlay;
   };
 
+  /** Keep the arrow honest when the window is moved without a state change. */
+  const refreshSide = () => {
+    const overlay = document.getElementById(OVERLAY_ID);
+    if (!overlay || state === "tucked") {
+      return;
+    }
+    const side = chosenSide();
+    if (overlay.dataset.side !== side) {
+      overlay.dataset.side = side;
+    }
+  };
+
   /** Build, place, or take away the strip to match the settings and the state. */
   const updateOverlay = () => {
     const controls = document.getElementById("controls");
@@ -986,6 +1046,12 @@
   // Start tucked rather than showing the player in its normal place first.
   if (pref(PREF_AUTO_TUCK, false)) {
     instantTuck(nearestSide());
+  } else {
+    // Firefox restores the last position just after the window opens, so check
+    // more than once that it is actually somewhere the user can see.
+    for (const delay of [0, 300, 800]) {
+      settleTimers.push(setTimeout(rescuePosition, delay));
+    }
   }
 
   const destroy = () => {
