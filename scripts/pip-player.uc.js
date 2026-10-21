@@ -18,6 +18,7 @@
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
   const PREF_SHORTCUT = "pip-tuck-away.shortcut";
   const PREF_HOVER_PEEK = "pip-tuck-away.hover-peek";
+  const PREF_AUTO_TUCK = "pip-tuck-away.auto-tuck";
 
   const SLIVER = 24; // px of window left on screen while tucked
   const MARGIN = 16; // px kept from the screen edge when the window is out
@@ -36,6 +37,7 @@
   let glideId = 0;
   let lastPointerAt = 0;
   let watchdog = null;
+  let settleTimers = [];
 
   const pref = (name, fallback) => {
     try {
@@ -192,6 +194,42 @@
 
   const toggle = () => (state === "tucked" ? untuck() : tuck());
 
+  /**
+   * Tuck with no animation, at the moment the player window is created.
+   *
+   * Firefox restores the player's last position and size shortly after it
+   * opens, which would undo an early move, so the position is re-asserted a
+   * few times over the first third of a second. That is also why `home` is
+   * left unset here: the coordinates visible this early can be placeholder
+   * values, and untucking should land on the screen edge instead.
+   */
+  const instantTuck = (side) => {
+    if (document.fullscreenElement) {
+      return false;
+    }
+    stopPeek();
+    spot = side || nearestSide();
+    state = "tucked";
+    root.setAttribute("pip-tucked", spot);
+    glideId++; // cancel anything already in flight
+    const settle = () => {
+      if (state !== "tucked" || peeked) {
+        return;
+      }
+      // The window has no real size yet while the document is still parsing.
+      if (!W() || W() < 50) {
+        return;
+      }
+      window.moveTo(...tuckedPos(spot));
+    };
+    settle();
+    requestAnimationFrame(settle);
+    for (const delay of [60, 150, 320]) {
+      settleTimers.push(setTimeout(settle, delay));
+    }
+    return true;
+  };
+
   /** Slide fully into view while the pointer is on the strip. */
   const peek = () => {
     if (state !== "tucked" || peeked || !pref(PREF_HOVER_PEEK, false)) {
@@ -291,9 +329,18 @@
   window.addEventListener("resize", onResize);
   Services.prefs.addObserver(PREF_HOVER_PEEK, onPrefChange);
 
+  // Start tucked rather than showing the player in its normal place first.
+  if (pref(PREF_AUTO_TUCK, false)) {
+    instantTuck(nearestSide());
+  }
+
   const destroy = () => {
     stopPeek();
     glideId++;
+    for (const id of settleTimers) {
+      clearTimeout(id);
+    }
+    settleTimers = [];
     document.removeEventListener("contextmenu", onContextMenu, true);
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mouseenter", onMouseEnter, true);

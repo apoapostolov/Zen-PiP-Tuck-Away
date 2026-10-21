@@ -14,15 +14,18 @@ The edge is chosen when you tuck: whichever of left, right, or bottom the window
 
 ## Settings
 
-The mod adds one section to its settings dialog in Sine, with three switches.
+The mod adds one section to its settings dialog in Sine, with four switches.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Tuck away on right click | on | Right-clicking the player toggles tucked and untucked |
 | Toggle with Ctrl+Shift+T | on | The keyboard toggle, from the browser window or the player |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player into view until the pointer leaves the video |
+| Auto tuck on PiP switch | off | The player opens already tucked, instead of appearing in its normal place first |
 
 The peek is off by default on purpose. Once it is on, the strip stops being a static sliver and starts responding to the pointer, which some people find distracting while watching something in the corner.
+
+Auto tuck is off by default because it changes where the player starts life. Turn it on and the very first thing you see when a video goes picture-in-picture is the strip at the edge, chosen as the edge nearest where the player would normally have appeared. Firefox restores a player window's last position and size just after it opens, so the mod re-applies the tucked position a few times across the first third of a second to win that race. A single frame at the old spot can still slip through on a slow start, which is the price of doing this from a script rather than inside the browser's own window code.
 
 ## Install
 

@@ -18,6 +18,7 @@
   const PLAYER_URL = "chrome://global/content/pictureinpicture/player.xhtml";
   const PLAYER_SCRIPT = "chrome://sine/content/pip-tuck-away/scripts/pip-player.uc.js";
   const SHORTCUT_PREF = "pip-tuck-away.shortcut";
+  const AUTO_TUCK_PREF = "pip-tuck-away.auto-tuck";
 
   const pref = (name, fallback) => {
     try {
@@ -54,6 +55,33 @@
     }
   };
 
+  /**
+   * Attach before the player document has finished loading, polling briefly
+   * for the moment the window holds the player page. Used only when auto tuck
+   * is on, where the point is to beat the first painted frame.
+   */
+  const earlyLoad = (win) => {
+    const started = Date.now();
+    const tick = () => {
+      try {
+        if (!win || win.closed) {
+          return;
+        }
+        if (win.location?.href === PLAYER_URL && win.document?.documentElement) {
+          decorate(win);
+          return;
+        }
+      } catch (err) {
+        // A window mid-navigation can throw on location access; keep polling.
+      }
+      if (Date.now() - started > 1500) {
+        return;
+      }
+      setTimeout(tick, 16);
+    };
+    setTimeout(tick, 0);
+  };
+
   const observer = {
     observe(subject, topic) {
       if (topic !== "domwindowopened" || !subject) {
@@ -61,6 +89,11 @@
       }
       // The player fills in its controls on load, so wait for it.
       subject.addEventListener("load", () => setTimeout(() => decorate(subject), 0), { once: true });
+      // With auto tuck on, the player should never be seen in its normal
+      // place, so get in as soon as the player document exists.
+      if (pref(AUTO_TUCK_PREF, false)) {
+        earlyLoad(subject);
+      }
     },
   };
 

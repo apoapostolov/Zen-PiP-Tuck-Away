@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- New setting: Auto tuck on PiP switch. When on, a new player window is tucked before it is shown, so a video goes straight to the strip instead of appearing in its usual place. Off by default.
+- The player half now attaches before the player document finishes loading when auto tuck is on, and re-applies the tucked position over the first 320ms so the browser's own position restore cannot undo it.
+- Untucking after an auto tuck lands the player on the screen edge it came from, because no reliable "before" position exists that early.
+
 ## 0.1.0
 
 First release.

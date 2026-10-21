@@ -33,6 +33,18 @@
     "defaultValue": false
   },
   {
+    "property": "pip-tuck-away.auto-tuck",
+    "label": "Auto tuck on PiP switch",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "type": "text",
+    "label": "Auto tuck opens the player already tucked, instead of showing it in its normal place first. The edge is the one nearest the player's usual spot.",
+    "size": "11px",
+    "margin": "4px 0 0 0"
+  },
+  {
     "type": "text",
     "label": "While a player window is open, Ctrl+Shift+T belongs to this mod, so it no longer reopens a closed tab. Turn the shortcut off to give it back.",
     "size": "11px",
