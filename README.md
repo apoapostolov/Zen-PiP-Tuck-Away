@@ -120,6 +120,11 @@ One requirement applies to every Sine mod installed from a repository rather tha
 
 ## When there is no media card to keep it inline
 
+A card that exists in the markup is not a card on screen. The toolbar that holds it lives in the sidebar, and a collapsed or slid-away sidebar takes it out of view while the element stays present and not `hidden`. The check therefore measures the card: a zero-size or off-viewport toolbar counts as no card, and the held request is handed to the real player.
+
+What the mod decides is written to `pip-tuck-away-trace.log` in the profile when the state cannot be answered from a test. One line per decision: which route a request took, what the card check measured, and whether the player window opened. Turn it off with `pip-tuck-away.trace` set to false; it rewrites itself past 96 KB.
+
+
 Keeping the video in the page only makes sense while Zen's own media card is there to drive it. That card lives in a toolbar of its own, is switched on by `zen.mediacontrols.enabled`, and does not appear at all in some layouts. So the mod now gives it a beat: if no card has turned up within 800ms of holding a request back, the request is handed to the real player and the window opens after all. A video with no window and no card is worse than the player the platform asked for, and the card being absent is not something a mod can fix.
 
 ## When the player folds away by itself

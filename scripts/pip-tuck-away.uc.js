@@ -35,6 +35,54 @@
 
   const log = (message, err) => console.error(`[PiP Tuck Away] ${message}`, err ?? "");
 
+  // ---------- trace
+  //
+  // Whether the player opens depends on state that only exists in a live window:
+  // which route the request took, and whether Zen's media card was really on
+  // screen rather than merely in the markup. Those two questions cannot be
+  // answered from a test harness or a restart, so the decisions are written to a
+  // small log in the profile that can be read afterwards.
+
+  const TRACE_PREF = "pip-tuck-away.trace";
+  const TRACE_MAX = 96 * 1024;
+
+  const tracePath = () => {
+    try {
+      const file = Services.dirsvc.get("ProfD", Components.interfaces.nsIFile);
+      file.append("pip-tuck-away-trace.log");
+      return file.path;
+    } catch (err) {
+      return null;
+    }
+  };
+
+  const trace = (message) => {
+    try {
+      if (!pref(TRACE_PREF, true)) {
+        return;
+      }
+      const path = tracePath();
+      const line = `${new Date().toISOString()} ${message}\n`;
+      if (!path) {
+        log(message);
+        return;
+      }
+      IOUtils.exists(path)
+        .then(async (there) => {
+          if (there) {
+            const info = await IOUtils.stat(path);
+            if (info.size > TRACE_MAX) {
+              await IOUtils.remove(path, { ignoreAbsent: true });
+            }
+          }
+          await IOUtils.writeUTF8(path, line, { mode: "append" });
+        })
+        .catch(() => {});
+    } catch (err) {
+      log(message, err);
+    }
+  };
+
   // ---------- keyboard toggle, on every Zen window
   //
   // The chord has to work from whatever window has focus: the main window, a
@@ -295,17 +343,50 @@
     }
   };
 
-  const mediaCardShown = () => {
+  /**
+   * Where Zen's media card is, in one word, for the decision and for the trace.
+   *
+   * Presence in the markup is not the question. The card can be in the tree,
+   * not hidden, and still be nowhere on screen: the toolbar it lives in sits in
+   * the sidebar, and a collapsed or slid-away sidebar takes it with it. A card
+   * nobody can see is no reason to hold a player back.
+   */
+  const mediaCardState = () => {
     try {
-      const bar = window.document?.querySelector?.(MEDIA_BAR);
-      if (!bar || bar.hidden || bar.hasAttribute?.("hidden")) {
-        return false;
+      const doc = window.document;
+      if (!doc?.querySelector) {
+        return "no-document";
       }
-      return !!bar.querySelector?.(".zen-media-card:not([hidden])");
+      const bar = doc.querySelector(MEDIA_BAR);
+      if (!bar) {
+        return "no-bar";
+      }
+      if (bar.hidden || bar.hasAttribute?.("hidden")) {
+        return "bar-hidden";
+      }
+      if (!bar.querySelector?.(".zen-media-card:not([hidden])")) {
+        return "no-card";
+      }
+      if (bar.offsetParent === null) {
+        return "bar-collapsed";
+      }
+      const rect = bar.getBoundingClientRect?.();
+      if (rect) {
+        if (rect.height < 8 || rect.width < 40) {
+          return `bar-tiny ${Math.round(rect.width)}x${Math.round(rect.height)}`;
+        }
+        const view = { w: window.innerWidth, h: window.innerHeight };
+        if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= view.h || rect.left >= view.w) {
+          return `bar-offscreen ${Math.round(rect.left)},${Math.round(rect.top)}`;
+        }
+      }
+      return "shown";
     } catch (err) {
-      return false;
+      return `error ${err?.message ?? err}`;
     }
   };
+
+  const mediaCardShown = () => mediaCardState() === "shown";
 
   let cardTimer = null;
 
@@ -316,10 +397,16 @@
     }
     cardTimer = setTimeout(() => {
       cardTimer = null;
-      if (!suppressed || mediaCardShown()) {
+      if (!suppressed) {
+        trace("card check: nothing held any more");
         return;
       }
-      log("no media card to drive the video, opening the player instead");
+      const state = mediaCardState();
+      if (state === "shown") {
+        trace("card check: card on screen, the video stays in the page");
+        return;
+      }
+      trace(`card check: ${state}, opening the player instead`);
       floatSuppressed();
     }, MEDIA_CARD_GRACE);
   };
@@ -339,6 +426,7 @@
       if (keepInline) {
         suppressed = { wgp, videoData };
         lastRequest = suppressed;
+        trace(`held back a tab-switch request; card is ${mediaCardState()}`);
         watchMediaCard();
         return undefined;
       }
@@ -355,9 +443,11 @@
     }
     const { wgp, videoData } = suppressed;
     suppressed = null;
+    trace("floating the held request");
     Promise.resolve(trueOriginal(wgp, videoData))
       .then(() => {
         const win = Services.wm.getMostRecentWindow("Toolkit:PictureInPicture");
+        trace(`float finished; player window ${win ? "open" : "missing"}`);
         if (!win) {
           return;
         }
