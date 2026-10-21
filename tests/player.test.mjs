@@ -1895,5 +1895,114 @@ for (const r of results) {
   if (!r.ok) failed++;
   console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.name}${r.ok ? "" : `  got ${r.actual} want ${r.expected}`}`);
 }
+// ---------- how a player opens: the size and place settings
+
+// 100. Remember Last is the default, so nothing is touched
+{
+  const t = mk({});
+  check("a player opens at the size the platform restored", t.size(), [SIZE.w, SIZE.h]);
+  check("with no size imposed", t.resizes, []);
+  check("and no place imposed", t.api.place().want, null);
+  check("so it is left free where the platform put it", t.api.isTucked(), false);
+}
+
+// 101. a chosen size is applied, keeping the video's own shape
+{
+  const t = mk({ "pip-tuck-away.size": "very-small" });
+  check("the player opens very small", t.size(), [200, 113]);
+  check("by being resized, not by luck", t.resizes.at(-1), [200, 113]);
+  check("and the video is not stretched", Math.abs(200 / 113 - SIZE.w / SIZE.h) < 0.02, true);
+}
+
+// 101b. choosing Remember Last explicitly is the same as never touching it
+{
+  const t = mk({ "pip-tuck-away.size": "remember", "pip-tuck-away.place": "remember" });
+  check("no size is imposed", t.resizes, []);
+  check("nothing is tucked", t.api.isTucked(), false);
+  check("and the player keeps the place the platform gave it", t.pos(), [100, 100]);
+}
+
+// 102. every size on the ladder
+{
+  for (const [choice, width] of [
+    ["small", 280],
+    ["medium", 380],
+    ["large", 520],
+    ["very-large", 680],
+  ]) {
+    const t = mk({ "pip-tuck-away.size": choice });
+    check(`${choice} is ${width} wide`, t.size()[0], width);
+    check(
+      `and keeps the video's shape at ${choice}`,
+      Math.abs(t.size()[0] / t.size()[1] - SIZE.w / SIZE.h) < 0.02,
+      true
+    );
+  }
+}
+
+// 103. a window that would end up off screen comes back on
+{
+  const t = mk({ "pip-tuck-away.size": "very-large" }, { x: 1800, y: 100 });
+  check("the window comes back on screen", t.pos(), [1920 - 680 - 16, 100]);
+}
+
+// 104. a chosen place is where the strip lives, and it is always tucked
+{
+  const t = mk({ "pip-tuck-away.place": "bottom-right" });
+  t.flush();
+  check("the strip lives in the bottom right corner", t.api.place().home, {
+    x: 1920 - SIZE.w - 16,
+    y: 1040 - SIZE.h - 16,
+  });
+  check("the player is tucked without being asked to auto tuck", t.api.isTucked(), true);
+  check("on the edge it hangs over", t.attrs.get("pip-tucked"), "right");
+  check("and the place is written down, so it survives a restart", t.getPref("pip-tuck-away.home"), "1524,810");
+}
+
+// 105. the middles tuck to the flat edges
+{
+  const top = mk({ "pip-tuck-away.place": "top-middle" });
+  top.flush();
+  check("top middle sits centred on the top edge", top.api.place().home, {
+    x: Math.round((1920 - SIZE.w) / 2),
+    y: 16,
+  });
+  check("and tucks to the top", top.attrs.get("pip-tucked"), "top");
+  const bottom = mk({ "pip-tuck-away.place": "bottom-middle" });
+  bottom.flush();
+  check("bottom middle sits centred on the bottom edge", bottom.api.place().home, {
+    x: Math.round((1920 - SIZE.w) / 2),
+    y: 1040 - SIZE.h - 16,
+  });
+  check("and tucks to the bottom", bottom.attrs.get("pip-tucked"), "bottom");
+}
+
+// 106. a corner tucks into the side edge it is nearest
+{
+  const t = mk({ "pip-tuck-away.place": "top-left" });
+  t.flush();
+  check("top left tucks to the left edge", t.attrs.get("pip-tucked"), "left");
+  check("at the top of it", t.api.place().home, { x: 16, y: 16 });
+}
+
+// 107. choosing a place while the player is free tucks it at once
+{
+  const t = mk({});
+  check("free to begin with", t.api.isTucked(), false);
+  t.setPref("pip-tuck-away.place", "top-right");
+  t.flush();
+  check("a place chosen later tucks the player", t.api.isTucked(), true);
+  check("in the corner it names", t.api.place().home, { x: 1920 - SIZE.w - 16, y: 16 });
+}
+
+// 108. a size chosen later resizes the player where it stands
+{
+  const t = mk({}, { x: 400, y: 300 });
+  t.setPref("pip-tuck-away.size", "small");
+  check("the player takes the size", t.size(), [280, 158]);
+  check("and stays where it was", t.pos(), [400, 300]);
+}
+
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

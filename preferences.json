@@ -1,14 +1,7 @@
 [
   {
-    "type": "text",
-    "label": "**Tuck away**",
-    "size": "15px",
-    "margin": "0 0 8px 0"
-  },
-  {
-    "type": "text",
-    "label": "The player slides into the nearest screen edge and leaves a small strip.",
-    "margin": "0 0 12px 0"
+    "type": "separator",
+    "label": "**Tuck away**"
   },
   {
     "property": "pip-tuck-away.right-click",
@@ -17,14 +10,8 @@
     "defaultValue": true
   },
   {
-    "property": "pip-tuck-away.frosted",
-    "label": "Tucked PiP Frosted Glass",
-    "type": "checkbox",
-    "defaultValue": true
-  },
-  {
-    "property": "pip-tuck-away.overlay",
-    "label": "Tuck Control Overlay",
+    "property": "pip-tuck-away.shortcut",
+    "label": "Toggle with **Ctrl+Alt+T**",
     "type": "checkbox",
     "defaultValue": true
   },
@@ -57,12 +44,6 @@
     ]
   },
   {
-    "property": "pip-tuck-away.drag-tuck",
-    "label": "Tuck when dragged past the edge",
-    "type": "checkbox",
-    "defaultValue": true
-  },
-  {
     "property": "pip-tuck-away.width",
     "label": "Tuck width",
     "type": "dropdown",
@@ -83,8 +64,8 @@
     ]
   },
   {
-    "property": "pip-tuck-away.shortcut",
-    "label": "Toggle with **Ctrl+Alt+T**",
+    "property": "pip-tuck-away.frosted",
+    "label": "Tucked PiP Frosted Glass",
     "type": "checkbox",
     "defaultValue": true
   },
@@ -95,10 +76,98 @@
     "defaultValue": false
   },
   {
-    "property": "pip-tuck-away.inline-in-zen",
-    "label": "Pop the player out when leaving Zen",
+    "property": "pip-tuck-away.overlay",
+    "label": "Tuck Control Overlay",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "pip-tuck-away.drag-tuck",
+    "label": "Tuck when dragged past the edge",
+    "type": "checkbox",
+    "defaultValue": true
+  },
+  {
+    "property": "pip-tuck-away.auto-tuck",
+    "label": "Auto tuck on PiP switch",
     "type": "checkbox",
     "defaultValue": false
+  },
+  {
+    "type": "separator",
+    "label": "**The player**"
+  },
+  {
+    "property": "pip-tuck-away.size",
+    "label": "Default PiP size",
+    "type": "dropdown",
+    "defaultValue": "remember",
+    "options": [
+      {
+        "label": "Remember Last",
+        "value": "remember"
+      },
+      {
+        "label": "Very Small",
+        "value": "very-small"
+      },
+      {
+        "label": "Small",
+        "value": "small"
+      },
+      {
+        "label": "Medium",
+        "value": "medium"
+      },
+      {
+        "label": "Large",
+        "value": "large"
+      },
+      {
+        "label": "Very Large",
+        "value": "very-large"
+      }
+    ]
+  },
+  {
+    "property": "pip-tuck-away.place",
+    "label": "Default PiP location",
+    "type": "dropdown",
+    "defaultValue": "remember",
+    "options": [
+      {
+        "label": "Remember Last",
+        "value": "remember"
+      },
+      {
+        "label": "Top Left",
+        "value": "top-left"
+      },
+      {
+        "label": "Top Middle",
+        "value": "top-middle"
+      },
+      {
+        "label": "Top Right",
+        "value": "top-right"
+      },
+      {
+        "label": "Bottom Left",
+        "value": "bottom-left"
+      },
+      {
+        "label": "Bottom Middle",
+        "value": "bottom-middle"
+      },
+      {
+        "label": "Bottom Right",
+        "value": "bottom-right"
+      }
+    ]
+  },
+  {
+    "type": "separator",
+    "label": "**Sidebar media controls**"
   },
   {
     "property": "pip-tuck-away.in-widget",
@@ -107,8 +176,8 @@
     "defaultValue": true
   },
   {
-    "property": "pip-tuck-away.auto-tuck",
-    "label": "Auto tuck on PiP switch",
+    "property": "pip-tuck-away.inline-in-zen",
+    "label": "Pop the player out when leaving Zen",
     "type": "checkbox",
     "defaultValue": false
   }

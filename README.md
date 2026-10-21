@@ -24,19 +24,54 @@ Hovering the strip slides the whole player back into view when the peek setting 
 
 ## Settings
 
+Grouped the way the mod works: the strip first, then the player itself, then
+the sidebar.
+
+### Tuck away
+
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Tuck away on right click | on | Right-clicking the player toggles tucked and untucked |
-| Tuck Control Overlay | on | A band of the video, with an arrow and the words Tuck Away, that tucks when pressed |
+| Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Tuck Direction | Smart | Which edge the strip tucks into: Smart, Right, Top, Left or Bottom. Smart measures the player's centre against all four edges |
-| Tuck when dragged past the edge | on | Drag the player past a screen edge, then move the pointer off it to tuck that way |
 | Tuck width | Normal | How much of the player stays on screen: Normal (24px), Wide (48px) or Very wide (72px) |
 | Tucked PiP Frosted Glass | on | The strip a tucked player leaves is frosted, so it reads as a handle. Off, it is plain video |
-| Toggle with Ctrl+Alt+T | on | The keyboard toggle, from any Zen window |
 | Peek while hovering the tucked strip | off | Hovering the strip slides the player out until the pointer leaves the video |
+| Tuck Control Overlay | on | A band of the video, with an arrow and the words Tuck Away, that tucks when pressed |
+| Tuck when dragged past the edge | on | Drag the player past a screen edge, then move the pointer off it to tuck that way |
+| Auto tuck on PiP switch | off | A new player opens already tucked instead of appearing in its normal place first |
+
+### The player
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Default PiP size | Remember Last | The size a player opens at: Remember Last, Very Small (200px wide), Small (280), Medium (380), Large (520) or Very Large (680) |
+| Default PiP location | Remember Last | Where a player opens, and it opens tucked there: Remember Last, the four corners, Top Middle or Bottom Middle |
+
+### Sidebar media controls
+
+| Setting | Default | What it does |
+| --- | --- | --- |
 | Integrate in Sidebar Media Controls (slow framerate, experimental) | on | In front, the video plays in the media widget and no player is opened. In the background, the standard picture-in-picture is used. The widget's picture is a copy, so it plays below the video's own frame rate |
 | Pop the player out when leaving Zen | off | Leaving Zen asks the tab in front for a player, which the platform does not do on its own |
-| Auto tuck on PiP switch | off | A new player opens already tucked instead of appearing in its normal place first |
+
+## The size and place a player opens at
+
+Both default to **Remember Last**, which means the mod does not touch either:
+the platform remembers a player's size and place, and that is usually what you
+want.
+
+Pick a size and the window is resized to it as it opens, keeping the shape the
+video already has, so nothing is stretched. The width is what the setting names
+(200px through 680px) and the height follows the video. A window that would end
+up past a screen edge comes back inside it.
+
+Pick a place and the player opens there **and tucked**, because a place is a
+place for the strip to live: Top Left and the other corners tuck into the side
+edge they are nearest, while Top Middle and Bottom Middle tuck into the flat
+edge they name. The place is written into the mod's own position memory, so
+untucking returns to it and it survives a restart. Choosing a place tucks even
+with **Auto tuck on PiP switch** off.
 
 ## The video in the media widget
 

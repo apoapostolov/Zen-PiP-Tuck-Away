@@ -1167,6 +1167,31 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("and no setting carries a hint beside its name", hints.map((e) => e.property), []);
 }
 
+// 30k. the settings are grouped, in order, with the new ones where they belong
+{
+  const settings = JSON.parse(fs.readFileSync("preferences.json", "utf8"));
+  const groups = settings.filter((e) => e.type === "separator").map((e) => e.label);
+  check("three groups, in the order the mod works", groups, [
+    "**Tuck away**",
+    "**The player**",
+    "**Sidebar media controls**",
+  ]);
+  check("every setting is a real type the settings page renders", 
+    settings.filter((e) => e.property && !["checkbox", "dropdown"].includes(e.type)), []);
+  const size = settings.find((e) => e.property === "pip-tuck-away.size");
+  const place = settings.find((e) => e.property === "pip-tuck-away.place");
+  check("a default size, Remember Last first and by default", [size.options[0], size.defaultValue],
+    [{ label: "Remember Last", value: "remember" }, "remember"]);
+  check("and the sizes run from very small to very large",
+    size.options.map((o) => o.label).slice(1),
+    ["Very Small", "Small", "Medium", "Large", "Very Large"]);
+  check("a default location, Remember Last first and by default", [place.options[0], place.defaultValue],
+    [{ label: "Remember Last", value: "remember" }, "remember"]);
+  check("with the corners and the two middles",
+    place.options.map((o) => o.label).slice(1),
+    ["Top Left", "Top Middle", "Top Right", "Bottom Left", "Bottom Middle", "Bottom Right"]);
+}
+
 // 30e2. a video that never produces a picture becomes a player window
 {
   const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });

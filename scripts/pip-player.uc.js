@@ -37,6 +37,9 @@
   const PREF_AUTO_TUCK = "pip-tuck-away.auto-tuck";
   const PREF_DRAG_TUCK = "pip-tuck-away.drag-tuck";
   const PREF_WIDTH = "pip-tuck-away.width";
+  const PREF_SIZE = "pip-tuck-away.size";
+  const PREF_PLACE = "pip-tuck-away.place";
+  const REMEMBER = "remember";
 
   // How much of the window stays on screen while tucked. The narrow default is
   // the one that reads as a drawer; the wider ones are for people who want more
@@ -132,6 +135,17 @@
         return fallback;
       }
       return Services.prefs.getBoolPref(name);
+    } catch (err) {
+      return fallback;
+    }
+  };
+
+  const prefString = (name, fallback) => {
+    try {
+      if (Services.prefs.getPrefType(name) === 0) {
+        return fallback;
+      }
+      return Services.prefs.getStringPref(name, fallback);
     } catch (err) {
       return fallback;
     }
@@ -1832,6 +1846,29 @@
     applyFrost();
   };
 
+  const onOpenPref = (subject, topic, name) => {
+    if (topic !== "nsPref:changed") {
+      return;
+    }
+    if (name === PREF_SIZE) {
+      applyDefaultSize();
+      if (placeIsChosen()) {
+        applyDefaultPlace();
+        if (state !== "tucked") {
+          instantTuck(spot);
+        }
+      }
+      return;
+    }
+    if (name === PREF_PLACE) {
+      if (applyDefaultPlace() && state !== "tucked") {
+        instantTuck(spot);
+      }
+    }
+  };
+
+  Services.prefs.addObserver(PREF_SIZE, onOpenPref);
+  Services.prefs.addObserver(PREF_PLACE, onOpenPref);
   Services.prefs.addObserver(PREF_FROST, onFrostPref);
   Services.prefs.addObserver(PREF_OVERLAY, onOverlayPref);
   Services.prefs.addObserver(PREF_DIRECTION, onOverlayPref);
@@ -1901,8 +1938,111 @@
     }
   };
 
+  // ---------- how a player opens
+  //
+  // Two settings decide where a player appears and how big it is. Both default
+  // to leaving it alone: the platform remembers a player's size and place, and
+  // that is what most people want. A size is applied to the window with the
+  // shape it already has, so the video is never stretched. A place is written
+  // into the mod's own position memory and then tucked, because a chosen place
+  // is a place for the strip to live in.
+
+  const SIZES = {
+    "very-small": 200,
+    small: 280,
+    medium: 380,
+    large: 520,
+    "very-large": 680,
+  };
+
+  const PLACES = {
+    "top-left": (b, w, h) => [b.left + MARGIN, b.top + MARGIN],
+    "top-middle": (b, w, h) => [Math.round(b.left + (b.right - b.left - w) / 2), b.top + MARGIN],
+    "top-right": (b, w, h) => [b.right - w - MARGIN, b.top + MARGIN],
+    "bottom-left": (b, w, h) => [b.left + MARGIN, b.bottom - h - MARGIN],
+    "bottom-middle": (b, w, h) => [Math.round(b.left + (b.right - b.left - w) / 2), b.bottom - h - MARGIN],
+    "bottom-right": (b, w, h) => [b.right - w - MARGIN, b.bottom - h - MARGIN],
+  };
+
+  /** The size the setting asks for, or null when the platform remembers it. */
+  const wantedSize = () => {
+    const choice = prefString(PREF_SIZE, REMEMBER);
+    const width = SIZES[choice];
+    if (!width) {
+      return null;
+    }
+    // The window already has the video's shape, so scaling one side keeps it.
+    const aspect = W() / H();
+    if (!Number.isFinite(aspect) || aspect < 0.2 || aspect > 6) {
+      return null;
+    }
+    const height = Math.max(90, Math.round(width / aspect));
+    return { width, height };
+  };
+
+  const applyDefaultSize = () => {
+    const want = wantedSize();
+    if (!want) {
+      return false;
+    }
+    if (W() === want.width && H() === want.height) {
+      return false;
+    }
+    try {
+      window.resizeTo(want.width, want.height);
+      // A window that grew past an edge comes back, rather than opening half
+      // off screen.
+      const b = screenBox();
+      const x = clamp(window.screenX, b.left + MARGIN, Math.max(b.left + MARGIN, b.right - want.width - MARGIN));
+      const y = clamp(window.screenY, b.top + MARGIN, Math.max(b.top + MARGIN, b.bottom - want.height - MARGIN));
+      if (Math.abs(x - window.screenX) > 2 || Math.abs(y - window.screenY) > 2) {
+        moveWindow(x, y);
+      }
+      return true;
+    } catch (err) {
+      log("could not set the player size", err);
+      return false;
+    }
+  };
+
+  /** The place the setting asks for, or null when the platform remembers it. */
+  const wantedPlace = () => {
+    const choice = prefString(PREF_PLACE, REMEMBER);
+    const make = PLACES[choice];
+    if (!make) {
+      return null;
+    }
+    const [x, y] = make(screenBox(), W(), H());
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x: Math.round(x), y: Math.round(y) };
+  };
+
+  /**
+   * Put a chosen place where the mod keeps its position memory, so the tuck
+   * that follows lands the strip there and a later untuck returns to it.
+   */
+  const applyDefaultPlace = () => {
+    const at = wantedPlace();
+    if (!at) {
+      return false;
+    }
+    home = { x: at.x, y: at.y };
+    writeHome(at.x, at.y);
+    return true;
+  };
+
+  const placeIsChosen = () => !!wantedPlace();
+
+  const applyOpenDefaults = () => {
+    applyDefaultSize();
+    applyDefaultPlace();
+  };
+
   ensureBadge();
   applyWidth();
+  applyOpenDefaults();
 
   // One timer for the life of the window: a size read and four subtractions
   // every 200ms, which is what notices a player dragged past an edge.
@@ -1916,7 +2056,9 @@
   trackPosition();
 
   // Start tucked rather than showing the player in its normal place first.
-  if (pref(PREF_AUTO_TUCK, false)) {
+  // A chosen place is always tucked: it names a place for the strip, and a
+  // player that opened in the middle of the screen would not be there.
+  if (pref(PREF_AUTO_TUCK, false) || placeIsChosen()) {
     instantTuck();
     tracking = true;
   } else {
@@ -1986,6 +2128,8 @@
       document.getElementById(BUTTON_ID)?.remove();
       document.removeEventListener("mousedown", onDocumentMouseDown, true);
       Services.prefs.removeObserver(PREF_FROST, onFrostPref);
+      Services.prefs.removeObserver(PREF_SIZE, onOpenPref);
+      Services.prefs.removeObserver(PREF_PLACE, onOpenPref);
       Services.prefs.removeObserver(PREF_OVERLAY, onOverlayPref);
       Services.prefs.removeObserver(PREF_DIRECTION, onOverlayPref);
     } catch (err) {
@@ -2000,6 +2144,8 @@
     untuck,
     destroy,
     isTucked: () => state === "tucked",
+    size: () => ({ want: wantedSize(), at: [W(), H()] }),
+    place: () => ({ want: wantedPlace(), home, spot }),
     stats: () => ({ state, spot, home, tracking, sliver, peeked, modTarget, loadedAt: LOADED_AT }),
     why: () => ({
       hover: hovering(),
