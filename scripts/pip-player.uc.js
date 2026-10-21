@@ -1605,8 +1605,22 @@
     return picker;
   };
 
+  const ensurePicker = () => {
+    let picker = pickerElement();
+    if (picker) {
+      return picker;
+    }
+    const controls = document.getElementById("controls");
+    if (!controls) {
+      return null;
+    }
+    picker = buildPicker();
+    controls.append(picker);
+    return picker;
+  };
+
   const openPicker = () => {
-    const picker = pickerElement();
+    const picker = ensurePicker();
     if (!picker) {
       return;
     }

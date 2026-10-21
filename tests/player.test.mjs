@@ -1137,6 +1137,17 @@ const check = (name, actual, expected) => {
   check("and the button points that way", t.button().dataset.side, "bottom");
 }
 
+// 24b. the map still opens from the button when the strip is switched off
+{
+  const t = mk({ "pip-tuck-away.overlay": false });
+  t.button().fire("contextmenu", {});
+  check("the map is built on demand", t.picker()?.hidden, false);
+  const spot = t.picker()?.children.find((c) => c.dataset?.side === "top");
+  spot.fire("click", {});
+  t.flush();
+  check("and still writes the choice down", t.getPref("pip-tuck-away.direction"), "top");
+}
+
 // 25. nothing else is needed for any of it
 {
   const t = mk({});
