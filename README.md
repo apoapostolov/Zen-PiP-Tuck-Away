@@ -43,6 +43,12 @@ Across that strip sits a small badge with a chevron pointing back out, on a fain
 
 The player opens where you last left it. Firefox saves a window's position when it closes, which is no help here: fold a tucked player away and the position it saves is the tucked one, mostly off screen, so the next player opens somewhere nobody put it. This mod keeps its own note instead, written when the player closes, and uses the place the player came from whenever it closes while tucked. A remembered place is pulled 16px inside the screen before it is used, so a position noted on a different display still lands somewhere you can grab.
 
+## Clicks and double clicks
+
+A single click on a tucked strip brings the player out, even with the hover-reveal setting off, because a person asking for the player is not an accident of geometry. A click on the player once it is out shows the controls, and they stay for as long as the pointer does instead of disappearing on a timer of their own.
+
+A double click still means fullscreen, which is why no single-click action runs straight away: it waits a quarter of a second, and a second click cancels it. The player itself only goes fullscreen when the double click's target is the control layer, so the tucked strip's chevron badge draws without taking any press, and the control layer stays a hit target while tucked instead of being switched off. Anything painted over the strip that accepted the press used to eat that gesture.
+
 ## Pulling a tucked player out
 
 Dragging a tucked player into the screen frees it: it goes free exactly where it was let go, and it stays there. A drag **along** the edge does not free it, it re-anchors the strip where you dropped it, because sliding a strip up or down its own edge is not a request to untuck. A nudge of a few pixels is ignored for the same reason, and the release is decided by how far the player has come back in from its attached position, not by whether the window moved at all.

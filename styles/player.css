@@ -215,6 +215,9 @@
 
 /* ---------- the tucked look: frosted video, chevron badge ------------- */
 
+/* The badge is a picture of a handle, not a hit area: a press on the strip has
+ * to reach #controls, or a double click there can never mean fullscreen. The
+ * strip still drags the window, because #controls is a drag region. */
 #pip-tuck-away-badge {
   position: fixed;
   z-index: 40;
@@ -222,8 +225,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(24, 24, 27, 0.32);
-  cursor: pointer;
-  -moz-window-dragging: drag;
+  pointer-events: none;
   transition: background-color 160ms linear;
 }
 
@@ -294,9 +296,20 @@
   transform: rotate(45deg);
 }
 
-/* Firefox's controls belong to the part of the player nobody can see. */
+/* Firefox's controls belong to the part of the player nobody can see. They are
+ * made transparent rather than un-hittable, because Firefox only treats a
+ * double click as "go fullscreen" when the event's target is #controls itself
+ * (player.js: onDblClick checks event.target.id == "controls"). A layer that
+ * cannot be hit cannot be that target, and the strip would lose the gesture.
+ * Its own buttons are made inert so nothing is pressed blind on a 24px strip. */
 :root[pip-tucked]:not([pip-peeking]) #controls {
-  visibility: hidden;
+  opacity: 0 !important;
+}
+
+:root[pip-tucked]:not([pip-peeking]) #controls button,
+:root[pip-tucked]:not([pip-peeking]) #controls input,
+:root[pip-tucked]:not([pip-peeking]) #controls [role="button"] {
+  pointer-events: none !important;
 }
 
 /* A filter on the holder works on the video itself, where a backdrop blur

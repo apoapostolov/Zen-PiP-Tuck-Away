@@ -99,6 +99,7 @@
   let controlsTimer = null;
   let armedSide = null; // the edge a drag has hooked onto, if any
   let armedDepth = 0; // how far past that edge the player is
+  let clickTimer = null; // pending single-click action, waiting out a double
   let armTimer = null;
   let bare = false;
   /** Screen coordinates of the pointer at its last event, so window moves cannot invalidate them. */
@@ -429,7 +430,7 @@
     clearLeave();
     stopPoll();
     root.removeAttribute("pip-peeking");
-    root.removeAttribute(CONTROLS_ATTR);
+    endControlsHold();
     setBare(false);
     clearFrost();
     updateOverlay();
@@ -634,11 +635,19 @@
     }, PEEK_POLL);
   };
 
-  const reveal = () => {
+  /**
+   * Bring the tucked player out. Hovering needs the setting and has to respect
+   * the cooldown that keeps a retract from strobing; an explicit click does
+   * not, because a person asking for the player is not an accident of geometry.
+   */
+  const reveal = (forced = false) => {
     if (state !== "tucked" || peeked || document.fullscreenElement) {
       return;
     }
-    if (!pref(PREF_HOVER_PEEK, false) || Date.now() < reopenAfter) {
+    if (!forced && !pref(PREF_HOVER_PEEK, false)) {
+      return;
+    }
+    if (!forced && Date.now() < reopenAfter) {
       return;
     }
     peeked = true;
@@ -653,6 +662,16 @@
       revealing = false;
     });
     startPoll();
+  };
+
+  /** A click on a tucked player is a request for it, not a hover accident. */
+  const peekNow = () => {
+    if (state !== "tucked" || peeked || document.fullscreenElement) {
+      return false;
+    }
+    reopenAfter = 0;
+    reveal(true);
+    return peeked;
   };
 
   const retract = () => {
@@ -762,27 +781,76 @@
    * back. Movement does not: a peek must survive the pointer drifting, which is
    * why the bare look is only given up on a press.
    */
-  const onBarePress = (event) => {
+  const CLICK_SPLIT = 250; // ms a single click waits to learn it is not a double
+
+  /**
+   * A real control keeps its own click; everything else on the player is the
+   * mod's business, which here means telling a single click from a double.
+   */
+  const isPlayerChrome = (node) => {
+    try {
+      return Boolean(
+        node?.closest?.(
+          "#controls button, #controls input, #pip-tuck-away-overlay, #pip-tuck-away-picker, .zia-pip-pill"
+        )
+      );
+    } catch (err) {
+      return false;
+    }
+  };
+
+  /** What a single click asks for, once it is known to be single. */
+  const actOnClick = () => {
+    if (state === "tucked" && !peeked) {
+      peekNow();
+      return;
+    }
+    if (peeked) {
+      // A bare peek is a look at the video; a click asks for the controls.
+      setBare(false);
+      offerControls();
+    }
+  };
+
+  /**
+   * A double click is the player's own gesture, and it only fires when the event
+   * target is `#controls` itself. A single-click action that runs first destroys
+   * it: the window tucks away, or the controls appear under the pointer and the
+   * second click lands on a button. So the single action waits a quarter of a
+   * second, and a second click cancels it.
+   */
+  const cancelScheduledClick = () => {
+    if (!clickTimer) {
+      return false;
+    }
+    clearTimeout(clickTimer);
+    clickTimer = null;
+    return true;
+  };
+
+  const onClickPlayer = (event) => {
     if (event.button !== 0) {
       return;
     }
-    if (event.target === badge()) {
+    if (event.detail > 1) {
+      cancelScheduledClick();
       return;
     }
-    if (bare) {
-      setBare(false);
+    if (isPlayerChrome(event.target)) {
+      return;
     }
-    // Only a peek needs the hand-over: elsewhere Firefox is already in charge.
-    if (peeked) {
-      offerControls();
-    }
+    cancelScheduledClick();
+    clickTimer = setTimeout(() => {
+      clickTimer = null;
+      actOnClick();
+    }, CLICK_SPLIT);
   };
 
   const onResize = () => {
     updateOverlay();
     refreshSide();
     rescuePosition();
-    if (state !== "tucked") {
+    if (state !== "tucked" || document.fullscreenElement) {
       return;
     }
     // Both positions are measured from the window size, so a resize re-anchors
@@ -814,7 +882,9 @@
    * screen frees the player.
    */
   const pullFromEdge = () => {
-    if (state !== "tucked" || !spot) {
+    // Fullscreen is not a drag: the window becomes the screen, and every
+    // measure of an edge stops meaning anything.
+    if (state !== "tucked" || !spot || document.fullscreenElement) {
       return 0;
     }
     const w = W();
@@ -859,7 +929,7 @@
       return;
     }
     tuckedTimer = setInterval(() => {
-      if (state !== "tucked" || animating || revealing) {
+      if (state !== "tucked" || animating || revealing || document.fullscreenElement) {
         return;
       }
       if (Date.now() < settleUntil) {
@@ -895,7 +965,7 @@
   };
 
   document.addEventListener("contextmenu", onContextMenu, true);
-  document.addEventListener("mousedown", onBarePress, true);
+  document.addEventListener("click", onClickPlayer, true);
   document.addEventListener("mousemove", onMouseMove, true);
   document.addEventListener("mouseenter", onMouseEnter, true);
   document.addEventListener("mouseleave", onMouseLeave, true);
@@ -1281,6 +1351,14 @@
 
   /** Firefox shows the controls on enter and hides them on its own timer, so a
    * press that un-bares them has to hand them over with a visible window. */
+  const endControlsHold = () => {
+    if (controlsTimer) {
+      clearTimeout(controlsTimer);
+      controlsTimer = null;
+    }
+    root.removeAttribute(CONTROLS_ATTR);
+  };
+
   const offerControls = () => {
     hideControlLayer(false);
     root.setAttribute(CONTROLS_ATTR, "");
@@ -1289,7 +1367,15 @@
     }
     controlsTimer = setTimeout(() => {
       controlsTimer = null;
-      root.removeAttribute(CONTROLS_ATTR);
+      // Firefox hides the controls on a timer of its own, and a peek has
+      // already spent the pointer-enter that would have shown them. A pointer
+      // still on the player is a person still looking at the controls, so the
+      // hand-over is renewed instead of expiring under them.
+      if (peeked || hovering()) {
+        offerControls();
+        return;
+      }
+      endControlsHold();
     }, CONTROLS_HOLD);
   };
 
@@ -1424,18 +1510,18 @@
     badge.setAttribute("role", "button");
     badge.setAttribute("tabindex", "0");
     badge.setAttribute("tooltip", "Bring the player back");
-    badge.addEventListener("click", (event) => {
+    // The badge never takes an event. Firefox only goes fullscreen on a double
+    // click whose target is `#controls`, so anything painted over the strip that
+    // accepts the press breaks that gesture, and a single click belongs to the
+    // player too. The key handler keeps it reachable without a pointer.
+    badge.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
       event.preventDefault();
-      event.stopPropagation();
       if (state === "tucked") {
         untuck();
       }
-    });
-    badge.addEventListener("contextmenu", (event) => {
-      // Right-click belongs to the mod's own tuck toggle, not to a menu.
-      event.preventDefault();
-      event.stopPropagation();
-      toggle();
     });
     return badge;
   };
@@ -1506,7 +1592,8 @@
     }
     settleTimers = [];
     document.removeEventListener("contextmenu", onContextMenu, true);
-    document.removeEventListener("mousedown", onBarePress, true);
+    document.removeEventListener("click", onClickPlayer, true);
+    cancelScheduledClick();
     document.removeEventListener("mousemove", onMouseMove, true);
     document.removeEventListener("mouseenter", onMouseEnter, true);
     document.removeEventListener("mouseleave", onMouseLeave, true);
