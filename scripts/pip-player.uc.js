@@ -611,6 +611,8 @@
   };
 
   const onFullscreenChange = () => {
+    // Zia can rebuild its overlay around a fullscreen round trip.
+    reconcileZia();
     if (document.fullscreenElement) {
       // Geometry means something else in fullscreen, so drop the reveal and do
       // not start another one until it ends.
@@ -778,11 +780,33 @@
 
   document.addEventListener("click", onZiaClick, true);
 
+  /**
+   * Zia hides its button through its own style sheet, with `display: none`
+   * and a `!important` rule of its own for the case where it thinks there is
+   * nowhere to tuck. A style sheet of ours can only beat that on specificity
+   * and order, and the order of two injected sheets is a race, so the winning
+   * declaration is put on the element itself: an inline `!important` outranks
+   * every style sheet there is.
+   */
+  const revealZiaButton = () => {
+    const button = ziaButton();
+    if (!button?.style?.setProperty) {
+      return false;
+    }
+    try {
+      button.style.setProperty("display", "inline-flex", "important");
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
+
   const reconcileZia = () => {
     if (!ziaButton()) {
       return;
     }
     showZiaButton();
+    revealZiaButton();
     reflectZiaButton();
   };
 

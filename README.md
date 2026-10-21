@@ -78,7 +78,7 @@ One requirement applies to every Sine mod installed from a repository rather tha
 
 Zia tucks picture-in-picture too, and two mods moving the same window turn every tuck into a tug of war. Set `zia.pip.tuck` to `false` in `about:config` and Zia's edge code goes dormant, which is what the install writes into `user.js` for you.
 
-The button stays. Zia hides its tuck button once its own switch is off, and a player missing a control it used to have looks broken, so this mod shows the button again and puts its own tuck behind it. The click is taken in the capture phase, before Zia's handler runs, so exactly one thing moves the window:
+The button stays. Zia hides its tuck button once its own switch is off, and a player missing a control it used to have looks broken, so this mod shows the button again and puts its own tuck behind it. It does that on the element itself, with an inline `!important`, because Zia hides the button through its own style sheet and two injected sheets win or lose by nothing more than their order. The click is taken in the capture phase, before Zia's handler runs, so exactly one thing moves the window:
 
 - Clicking the button tucks, and clicking it again brings the player back. Zia's own button only ever tucked.
 - Right-clicking it still opens Zia's spot picker. A spot you pick there is honoured through this mod, folded onto the nearest side it parks against, which is left, right or bottom.
