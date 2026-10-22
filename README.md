@@ -17,6 +17,8 @@ A Sine mod for Zen's picture-in-picture player.
 Right-click the player to tuck it into a screen edge. The video keeps playing,
 with a narrow strip left on screen. Right-click again to bring it back.
 
+![A tucked PiP player revealing a peek when hovered](media/pip-peek-comparison.png)
+
 ## What it does
 
 - Right-click or press `Ctrl+Alt+T` to tuck and restore. You can turn either
@@ -46,6 +48,9 @@ controls and removes its minimize button.
   and a pop-out button. **Integrate in Sidebar Media Controls** is experimental
   and on by default. **Sidebar preview frame rate** offers 15, 30, or 60 fps,
   with 30 as the default. Protected video uses the floating player.
+
+  ![Video preview above Zen's sidebar media controls](media/sidebar-video-preview.png)
+
 - Enable **Pop the player out when leaving Zen** to get a floating player when
   you switch apps from the video's tab. It's off by default.
 - Turn on **Write diagnostic logs** when tracking down a bug. Logging is off
