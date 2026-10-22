@@ -4,24 +4,28 @@ import vm from "node:vm";
 import { dirname, join } from "node:path";
 
 const CODE = fs.readFileSync(process.argv[2], "utf8");
+const TRACE_CODE = fs.readFileSync(join(dirname(dirname(process.argv[2])), "scripts", "pip-trace.sys.mjs"), "utf8")
+  .replaceAll("export function", "function");
 const PLAYER_URL = "chrome://global/content/pictureinpicture/player.xhtml";
 const PLAYER_SCRIPT = "chrome://sine/content/pip-tuck-away/scripts/pip-player.uc.js";
 
+let latestWindow = null;
+
 function mk(prefsIn = {}, opts = {}) {
+  const app = opts.app ?? {};
   const wwObservers = [];
   const winEvents = Object.create(null);
   const loads = [];
   const destroys = [];
   const toggles = [];
   let unloadListener = null;
-  const files = new Map();
   const intervals = [];
   const frames = [];
   const prefObservers = [];
+  const resizeObservers = [];
+  const mutationObservers = [];
 
   const prefs = { ...prefsIn };
-
-  const BRIDGE_PATH = "C:/AppData/Local/pip-tuck-away/toggle.json";
 
   const pipWindow = (href = PLAYER_URL, env = {}) => {
     const { fireLoad = true, documentReady = true } = env;
@@ -78,7 +82,7 @@ function mk(prefsIn = {}, opts = {}) {
     };
   };
 
-  const windows = [pipWindow(), browserWindow()];
+  const windows = app.windows ??= [pipWindow(), browserWindow()];
 
   // Fake picture-in-picture module plus the windows it would create.
   const pipCalls = [];
@@ -105,6 +109,9 @@ function mk(prefsIn = {}, opts = {}) {
           kid.parent = node;
           node.children.push(kid);
         }
+      },
+      contains(target) {
+        return target === node || node.children.some((kid) => kid.contains(target));
       },
       remove() {
         if (node.parent) {
@@ -195,7 +202,7 @@ function mk(prefsIn = {}, opts = {}) {
   };
 
   const substitutions = Object.create(null);
-  const registeredActors = Object.create(null);
+  const registeredActors = app.registeredActors ??= Object.create(null);
   const Cc = {
     "@mozilla.org/chrome/chrome-registry;1": {
       getService: () => ({ convertChromeURL: (uri) => ({ spec: uri.spec }) }),
@@ -208,6 +215,9 @@ function mk(prefsIn = {}, opts = {}) {
     addEventListener(type, fn) {
       (this._events[type] ||= []).push(fn);
     },
+    removeEventListener(type, fn) {
+      this._events[type] = (this._events[type] || []).filter((f) => f !== fn);
+    },
     fire(type, target = {}) {
       for (const fn of [...(this._events[type] || [])]) fn({ type, target });
     },
@@ -218,7 +228,7 @@ function mk(prefsIn = {}, opts = {}) {
   const weakWinToBrowser = new WeakMap();
   const weakAutoPipBrowserToParent = new WeakMap();
   let focused = opts.focused ?? true;
-  const pipModule = {
+  const pipModule = app.pipModule ??= {
     PictureInPicture: {
       weakWinToBrowser,
       weakAutoPipBrowserToParent,
@@ -283,7 +293,7 @@ function mk(prefsIn = {}, opts = {}) {
       return null;
     },
   };
-  const cardMode = opts.mediaCard ?? "absent";
+  let cardMode = opts.mediaCard ?? "absent";
   // "shown" is a card on screen; "tiny" is one in a collapsed sidebar, "offscreen"
   // is one a sliding sidebar has carried out of the viewport.
   const cardRect = {
@@ -323,7 +333,7 @@ function mk(prefsIn = {}, opts = {}) {
     },
   };
 
-  const traces = new Map();
+  const traces = app.traces ??= new Map();
   const launcherMessages = [];
   const selected = {
     audioMuted: opts.muted ?? false,
@@ -337,7 +347,21 @@ function mk(prefsIn = {}, opts = {}) {
     },
   };
 
+  mediaBar.contains = (target) => target === mediaBar || target === dockCardEl || mediaBar.children.some((node) => node.contains(target));
+  mediaBar.addEventListener = (type, fn) => (mediaBar.listeners ??= {})[type] = fn;
+  mediaBar.removeEventListener = (type) => { delete (mediaBar.listeners ??= {})[type]; };
   const window = {
+    ResizeObserver: class {
+      constructor(callback) { this.callback = callback; this.active = true; resizeObservers.push(this); }
+      observe() { this.active = true; }
+      unobserve() {}
+      disconnect() { this.active = false; }
+    },
+    MutationObserver: class {
+      constructor(callback) { this.callback = callback; this.active = true; mutationObservers.push(this); }
+      observe() { this.active = true; }
+      disconnect() { this.active = false; }
+    },
     innerWidth: 1920,
     innerHeight: 1080,
     location: { href: "chrome://browser/content/browser.xhtml" },
@@ -367,12 +391,16 @@ function mk(prefsIn = {}, opts = {}) {
     },
   };
 
+  latestWindow = window;
+  if (opts.app) windows.push(window);
   const sandbox = {
     window,
     Services: {
       prefs: {
         getPrefType: (k) => (k in prefs ? 128 : 0),
         getBoolPref: (k, fallback = false) => (k in prefs ? !!prefs[k] : fallback),
+        getStringPref: (k, fallback = "") => prefs[k] ?? fallback,
+        setStringPref: (k, value) => { prefs[k] = value; },
         addObserver: (name, fn) => prefObservers.push({ name, fn }),
         removeObserver: (name, fn) => {
           const i = prefObservers.findIndex((o) => o.name === name && o.fn === fn);
@@ -440,8 +468,18 @@ function mk(prefsIn = {}, opts = {}) {
       },
     },
     ChromeUtils: {
-      importESModule: () => pipModule,
+      importESModule: (url) => {
+        if (url.includes("pip-trace.sys.mjs")) {
+          return app.traceModule ??= vm.runInNewContext(TRACE_CODE + "\n({ appendTrace, flushTrace });", { IOUtils: sandbox.IOUtils });
+        }
+        return pipModule;
+      },
       registerWindowActor: (name, spec) => {
+        if (registeredActors[name]) {
+          const err = new Error("already registered");
+          err.name = "NotSupportedError";
+          throw err;
+        }
         registeredActors[name] = spec;
       },
       unregisterWindowActor: (name) => {
@@ -451,11 +489,7 @@ function mk(prefsIn = {}, opts = {}) {
     Components: { interfaces: { nsIFile: "nsIFile" } },
     IOUtils: {
       async exists(path) {
-        return files.has(path) || traces.has(path);
-      },
-      async readUTF8(path) {
-        if (!files.has(path)) throw new Error("missing");
-        return files.get(path);
+        return traces.has(path);
       },
       async stat(path) {
         return { size: (traces.get(path) ?? "").length };
@@ -467,7 +501,8 @@ function mk(prefsIn = {}, opts = {}) {
         if (options.mode === "append" && !traces.has(path)) {
           throw new Error("NS_ERROR_FILE_NOT_FOUND");
         }
-        traces.set(path, (traces.get(path) ?? "") + text);
+        if (opts.traceFails) throw new Error("disk unavailable");
+        traces.set(path, (options.mode === "append" ? traces.get(path) ?? "" : "") + text);
       },
       async remove(path) {
         traces.delete(path);
@@ -548,6 +583,7 @@ function mk(prefsIn = {}, opts = {}) {
       for (const obs of wwObservers) obs.observe(win, topic);
     },
     unload: () => unloadListener?.(),
+    reload: () => vm.runInContext(CODE, sandbox),
     observerCount: () => wwObservers.length,
     emit(type, event = {}) {
       event.preventDefault ??= () => {};
@@ -558,6 +594,7 @@ function mk(prefsIn = {}, opts = {}) {
     pipCalls,
     dockSpacers,
     traces: () => [...traces.entries()].map(([p, s]) => s).join(""),
+    flushTrace: () => app.traceModule?.flushTrace(),
     closedWindows,
     closedSingle,
     launcherMessages,
@@ -593,9 +630,7 @@ function mk(prefsIn = {}, opts = {}) {
     setFocus: (v) => {
       focused = v;
     },
-    files,
     intervals,
-    bridgePath: BRIDGE_PATH,
     browserWindow,
     /** Deliver any event to a specific chrome window. */
     fireOn(win, type, event = {}) {
@@ -615,9 +650,17 @@ function mk(prefsIn = {}, opts = {}) {
     },
     setPref(name, value) {
       prefs[name] = value;
-      for (const obs of [...prefObservers]) obs.fn({}, "nsPref:changed", name);
+      for (const obs of prefObservers.filter((entry) => entry.name === name)) obs.fn({}, "nsPref:changed", name);
     },
-    async tick() {
+    showMediaBar() { cardMode = "shown"; mediaBar.hidden = false; this.notifyMutation(mediaBar); },
+    pendingFrames: () => frames.filter(Boolean).length,
+    notifyResize() { for (const obs of resizeObservers) if (obs.active) obs.callback([]); },
+    notifyMutation(target) { for (const obs of mutationObservers) if (obs.active) obs.callback([{ target }]); },
+    transition(type, target, propertyName = "height") {
+      for (const fn of winEvents[type] ?? []) fn({ type, target, propertyName });
+    },
+    async tick(notifyResize = true) {
+      if (notifyResize) for (const obs of resizeObservers) if (obs.active) obs.callback([]);
       for (const fn of [...intervals]) {
         if (fn) fn();
       }
@@ -836,6 +879,7 @@ const check = (name, actual, expected) => {
 
 const wgpFor = (active, opts = {}) => {
   const browser = {
+    ownerGlobal: opts.owner ?? latestWindow,
     docShellIsActive: active,
     getTabBrowser: () => ({
       selectedBrowser: opts.selected === false ? {} : browser,
@@ -931,7 +975,7 @@ const mirrorActor = {
 
 // 17c. the trace says what happened to the request
 {
-  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": true }, { mediaCard: "shown", deferTimers: true });
+  const t = mk({ "pip-tuck-away.trace": true, "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": true }, { mediaCard: "shown", deferTimers: true });
   await t.pipApi().handlePictureInPictureRequest(wgpFor(false), { src: "video" });
   await tick();
   check("the request is recorded as mirrored", /mirror: the widget shows the video/.test(t.traces()), true);
@@ -1177,10 +1221,11 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 {
   const settings = JSON.parse(fs.readFileSync("preferences.json", "utf8"));
   const groups = settings.filter((e) => e.type === "separator").map((e) => e.label);
-  check("three groups, in the order the mod works", groups, [
+  check("settings groups follow the mod workflow", groups, [
     "**Tuck away**",
     "**The player**",
     "**Sidebar media controls**",
+    "**Diagnostics**",
   ]);
   check("every setting is a real type the settings page renders", 
     settings.filter((e) => e.property && !["checkbox", "dropdown"].includes(e.type)), []);
@@ -1200,7 +1245,7 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
 
 // 30l. the trace exists on a profile that has never had one
 {
-  const t = mk({}, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const t = mk({ "pip-tuck-away.trace": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
   await t.tick();
   check("a trace line was written to a file that did not exist", /widget:/.test(t.traces()), true);
   check("with no write error recorded", t.prefs["pip-tuck-away.trace-error"], undefined);
@@ -1510,6 +1555,208 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown" });
   t.unload();
   check("handler restored on unload", !!t.pipApi().handlePictureInPictureRequest.__pipTuckAway, false);
+}
+
+// Lifecycle regressions: Sine unload/reload and multiple browser windows.
+{
+  const t = mk({}, { deferTimers: true });
+  const fresh = t.pipWindow(PLAYER_URL, { fireLoad: false });
+  t.windows.push(fresh);
+  t.openWindow(fresh);
+  t.unload();
+  t.fireOn(fresh, "load");
+  t.runTimers();
+  check("unload cancels late player decoration", t.loads.length, 1);
+  check("unload removes tab listeners", t.tabStrip._events.TabSelect.length, 0);
+  check("unload removes the actor controller", t.controller(), undefined);
+  t.reload();
+  check("Sine can reload the browser script", t.observerCount(), 1);
+  check("reload installs one tab listener", t.tabStrip._events.TabSelect.length, 1);
+}
+{
+  const app = {};
+  const first = mk({}, { app, deferTimers: true, mediaCard: "shown" });
+  const second = mk({}, { app, deferTimers: true, mediaCard: "shown" });
+  const video = wgpFor(false, { selected: false, bcId: 201, owner: second.window });
+  await first.pipApi().handlePictureInPictureRequest(video, {});
+  check("a second window owns its own preview", !!second.mirror(), true);
+  check("the first sidebar stays empty", first.mirror(), null);
+  first.unload();
+  check("another window keeps the actor registered", !!second.registeredActors.PipMirror, true);
+  check("another window keeps the PiP hook installed", !!second.pipApi().handlePictureInPictureRequest.__pipTuckAway, true);
+  second.keyOn(app.windows[0], { ctrlKey: true, altKey: true, key: "t" });
+  check("shared player shortcuts survive the first window unloading", first.toggles.length, 1);
+  second.unload();
+  check("the last window unregisters the actor", second.registeredActors.PipMirror, undefined);
+  check("the last window releases shared keyboard handling", app.windows[0].listeners.keydown.length, 0);
+}
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  const a = wgpFor(false, { selected: false, bcId: 202 });
+  await t.pipApi().handlePictureInPictureRequest(a, {});
+  t.controller().mirrorStarted(202, { width: 1280, height: 720 }, mirrorActor);
+  const b = wgpFor(false, { selected: true, bcId: 203 });
+  t.select(b.browser);
+  t.tabStrip.fire("TabSelect");
+  const c = wgpFor(false, { selected: false, bcId: 204 });
+  t.select(c.browser);
+  t.tabStrip.fire("TabSelect");
+  t.controller().mirrorStarted(203, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorUnavailable(203, "copy failed");
+  await tick();
+  check("a replacement preview never falls back to the previous tab", t.pipCalls.length, 0);
+}
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  const video = wgpFor(false, { selected: false, bcId: 205 });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  const button = t.mirror().querySelector(".pip-tuck-away-mirror-button");
+  check("sidebar controls use native keyboard buttons", [button.tagName, button.getAttribute("type")], ["BUTTON", "button"]);
+}
+
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  const video = wgpFor(false, { selected: false, bcId: 206 });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  t.setPref("pip-tuck-away.in-widget", false);
+  await tick();
+  check("disabling sidebar integration removes the preview immediately", t.mirror(), null);
+  check("disabling sidebar integration releases its held PiP request", t.pipCalls.length, 1);
+  t.setPref("pip-tuck-away.trace", false);
+  check("disabling tracing stops the layout polling", t.intervals.filter(Boolean).length, 0);
+  t.setPref("pip-tuck-away.trace", true);
+  check("enabling tracing starts one layout poll", t.intervals.filter(Boolean).length, 1);
+}
+
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  const a = wgpFor(false, { selected: true, bcId: 207 });
+  t.select(a.browser);
+  t.tabStrip.fire("TabSelect");
+  const b = wgpFor(false, { selected: false, bcId: 208 });
+  t.select(b.browser);
+  t.tabStrip.fire("TabSelect");
+  await t.pipApi().handlePictureInPictureRequest(a, {});
+  t.controller().mirrorUnavailable(207, "copy failed");
+  await tick();
+  check("a PiP request arriving after TabSelect still falls back", t.pipCalls.length, 1);
+}
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  const a = wgpFor(false, { selected: false, bcId: 209 });
+  const b = wgpFor(false, { selected: false, bcId: 210 });
+  await t.pipApi().handlePictureInPictureRequest(a, {});
+  await t.pipApi().handlePictureInPictureRequest(b, {});
+  t.select(b.browser);
+  t.tabStrip.fire("TabSelect");
+  await tick();
+  check("foregrounding a pending tab cancels its held PiP request", t.pipCalls.length, 0);
+}
+
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  const a = wgpFor(false, { selected: false, bcId: 211 });
+  const b = wgpFor(false, { selected: false, bcId: 212 });
+  await t.pipApi().handlePictureInPictureRequest(a, {});
+  t.controller().mirrorStarted(211, { paused: true }, mirrorActor);
+  await t.pipApi().handlePictureInPictureRequest(b, {});
+  t.controller().mirrorState(212, { paused: false });
+  check("pending state cannot change the current play button", t.mirror().querySelector(".pip-tuck-away-mirror-button path").getAttribute("d"), "M4 2l12 8-12 8z");
+}
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  t.windows.length = 0;
+  const video = wgpFor(false, { selected: false, bcId: 213 });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  const controls = t.mirror().querySelector(".pip-tuck-away-mirror-bar");
+  controls.children[1].fire("click", { preventDefault() {}, stopPropagation() {} });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  check("pop-out bypasses the preview for its own request", t.pipCalls.length, 1);
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  check("later requests can show the same tab in the sidebar again", !!t.mirror(), true);
+}
+
+// Idle previews do not schedule continuous layout measurements.
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const video = wgpFor(false, { selected: false, bcId: 301 });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  t.controller().mirrorStarted(301, { width: 1280, height: 720 }, mirrorActor);
+  t.controller().mirrorFrame(301, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  await t.tick(false);
+  check("idle sidebar layout leaves no frame callback", t.pendingFrames(), 0);
+  t.notifyMutation(t.mirror().firstElementChild);
+  check("preview-owned DOM writes do not request layout", t.pendingFrames(), 0);
+  t.transition("transitionrun", t.dockCardEl, "height");
+  t.transition("transitionrun", t.dockCardEl, "width");
+  await t.tick(false);
+  check("active card transitions keep layout synchronized", t.pendingFrames(), 1);
+  t.transition("transitionend", t.dockCardEl, "height");
+  await t.tick(false);
+  check("another transitioning property keeps tracking alive", t.pendingFrames(), 1);
+  t.transition("transitioncancel", t.dockCardEl, "width");
+  await t.tick(false);
+  check("finished card transitions return layout to idle", t.pendingFrames(), 0);
+  t.unload();
+  t.notifyResize();
+  check("unloaded observers cannot schedule another layout", t.pendingFrames(), 0);
+}
+// Trace writes from different browser windows share the same ordered queue.
+{
+  const app = {};
+  const first = mk({ "pip-tuck-away.trace": true }, { app, deferTimers: true });
+  const second = mk({ "pip-tuck-away.trace": true }, { app, deferTimers: true });
+  await second.flushTrace();
+  check("concurrent startup logs are never overwritten", (first.traces().match(/browser half loaded/g) ?? []).length, 2);
+  first.unload(); second.unload();
+}
+{
+  const t = mk({}, { deferTimers: true });
+  await t.tick(false);
+  check("tracing is opt-in for a new installation", [t.traces(), t.intervals.filter(Boolean).length], ["", 0]);
+  const settings = JSON.parse(fs.readFileSync("preferences.json", "utf8"));
+  check("preview rate defaults to 30 fps", settings.find((e) => e.property === "pip-tuck-away.preview-fps").defaultValue, "30");
+}
+
+{
+  const opts = { deferTimers: true, traceFails: true };
+  const t = mk({ "pip-tuck-away.trace": true, "pip-tuck-away.in-widget": false }, opts);
+  await t.flushTrace();
+  check("trace write errors are recorded", /disk unavailable/.test(t.prefs["pip-tuck-away.trace-error"]), true);
+  opts.traceFails = false;
+  await t.pipApi().handlePictureInPictureRequest(wgpFor(false), {});
+  await t.flushTrace();
+  check("a failed write does not poison later queued writes", /request:/.test(t.traces()), true);
+}
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "shown" });
+  const video = wgpFor(false, { selected: false, bcId: 302 });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  const before = mirrorActor.sent.length;
+  t.setPref("pip-tuck-away.preview-fps", "15");
+  check("changing the cap configures the current actor", mirrorActor.sent.slice(before).map((m) => [m.name, m.data.fps]), [["PipMirror:Configure", 15]]);
+}
+
+for (const mediaCard of ["absent", "offscreen"]) {
+  const t = mk({}, { deferTimers: true, mediaCard, dockCard: true });
+  const video = wgpFor(false, { selected: false, bcId: 303 });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  t.controller().mirrorFrame(303, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  t.runTimers();await tick();
+  check(`a ${mediaCard} sidebar falls back even after copying pixels`, t.pipCalls.length, 1);
+}
+{
+  const t = mk({}, { deferTimers: true, mediaCard: "absent", dockCard: true, barRect: BAR_AT_BOTTOM });
+  const video = wgpFor(false, { selected: false, bcId: 304 });
+  await t.pipApi().handlePictureInPictureRequest(video, {});
+  t.controller().mirrorFrame(304, { buf: new ArrayBuffer(16), width: 2, height: 2 });
+  t.showMediaBar();await t.tick();t.runTimers();await tick();
+  check("a toolbar appearing during startup keeps its preview", [!!t.mirror(),t.pipCalls.length], [true,0]);
+}
+{
+  const t = mk({ "zen.mediacontrols.enabled": false }, { deferTimers: true, mediaCard: "shown" });
+  await t.pipApi().handlePictureInPictureRequest(wgpFor(false), {});
+  check("disabled native media controls use the platform directly", [t.mirror(),t.pipCalls.length], [null,1]);
 }
 
 let failed = 0;

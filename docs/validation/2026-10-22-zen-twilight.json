@@ -1,0 +1,317 @@
+{
+  "date": "2026-10-22",
+  "environment": {
+    "zen": "1.24t",
+    "buildID": "20261020115400",
+    "gecko": "158.0.1",
+    "os": "Windows",
+    "devicePixelRatio": 1.5,
+    "displays": 1,
+    "sine": "2.3.4.1c",
+    "ziaPlayerModule": "2.103.11"
+  },
+  "method": "Privileged native Marionette session in a disposable profile, loading production chrome URLs; generated H.264 video fixtures and a public YouTube video. Installed Sine manager and Zia player files were copied into the test profile; the user profile was read only.",
+  "passed": 35,
+  "checks": [
+    {
+      "suite": "player-checks",
+      "name": "native video is decoded",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "player-checks",
+      "name": "native right-edge tuck",
+      "ok": true,
+      "details": [
+        1683,
+        350
+      ]
+    },
+    {
+      "suite": "player-checks",
+      "name": "native untuck restores home",
+      "ok": true,
+      "details": [
+        650,
+        350
+      ]
+    },
+    {
+      "suite": "player-checks",
+      "name": "native video swap preserves place",
+      "ok": true,
+      "details": [
+        650,
+        350,
+        180,
+        320
+      ]
+    },
+    {
+      "suite": "player-checks",
+      "name": "native hover peek reveals tucked video",
+      "ok": true,
+      "details": {
+        "state": "tucked",
+        "spot": "left",
+        "home": {
+          "x": 650,
+          "y": 350
+        },
+        "tracking": true,
+        "sliver": 24,
+        "peeked": true,
+        "modTarget": {
+          "x": 0,
+          "y": 350
+        },
+        "loadedAt": 1792660820857
+      }
+    },
+    {
+      "suite": "player-checks",
+      "name": "player teardown removes its API and restores resize",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "player-checks",
+      "name": "player can load again",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "paused seeking updates the native sidebar picture",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "a MediaKeys video uses native PiP",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "iframe video opens in native PiP",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "Zia minimize control is removed",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "Zia tucking is suspended while this mod owns movement",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "hover peek survives Zia's own poll",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "native fullscreen opens with Zia loaded",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "compatibility",
+      "name": "native fullscreen exits with Zia loaded",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "second browser window owns a moving preview",
+      "ok": true
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "second browser window opens a decorated native player",
+      "ok": true
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "closing the first browser keeps the shared PiP hook",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "the global PiP hook returns after its creating window closes",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "player shortcut survives closing the first browser",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "Sine-style disabling releases the remaining native hook",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "Sine-style enabling restores existing player controls",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "surviving browser can preview again",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "multiwindow-check",
+      "name": "trace writes keep draining after the first browser closes",
+      "ok": true,
+      "details": null
+    },
+    {
+      "suite": "edge-checks",
+      "name": "native left edge geometry at 150% scaling",
+      "ok": true,
+      "details": {
+        "x": -156,
+        "y": 350,
+        "w": 180,
+        "h": 320,
+        "distance": 0
+      }
+    },
+    {
+      "suite": "edge-checks",
+      "name": "native right edge geometry at 150% scaling",
+      "ok": true,
+      "details": {
+        "x": 1683,
+        "y": 300,
+        "w": 180,
+        "h": 320,
+        "distance": 0
+      }
+    },
+    {
+      "suite": "edge-checks",
+      "name": "native top edge geometry at 150% scaling",
+      "ok": true,
+      "details": {
+        "x": 650,
+        "y": -296,
+        "w": 180,
+        "h": 320,
+        "distance": 0
+      }
+    },
+    {
+      "suite": "edge-checks",
+      "name": "native bottom edge geometry at 150% scaling",
+      "ok": true,
+      "details": {
+        "x": 600,
+        "y": 888,
+        "w": 180,
+        "h": 320,
+        "distance": 0
+      }
+    },
+    {
+      "suite": "edge-checks",
+      "name": "pulling the native player in from its edge frees it",
+      "ok": true
+    },
+    {
+      "suite": "sine-check",
+      "name": "installed Sine 2.3.4.1c registers the mod's real unload callback",
+      "ok": true
+    },
+    {
+      "suite": "sine-check",
+      "name": "Sine disable removes browser and player controllers",
+      "ok": true
+    },
+    {
+      "suite": "sine-check",
+      "name": "Sine can re-enable the mod without restarting Zen",
+      "ok": true
+    },
+    {
+      "suite": "sine-check",
+      "name": "Sine update unload works during a hover peek",
+      "ok": true
+    },
+    {
+      "suite": "sine-check",
+      "name": "Sine update reload restores the live player",
+      "ok": true
+    },
+    {
+      "suite": "youtube",
+      "name": "public YouTube native PiP",
+      "available": true,
+      "ok": true,
+      "state": {
+        "paused": true,
+        "width": 1280,
+        "height": 720,
+        "time": 0.140645,
+        "duration": 634.601,
+        "keys": false
+      }
+    }
+  ],
+  "previewBenchmark": [
+    {
+      "cap": 15,
+      "seconds": 2.5049691000000167,
+      "frames": 38,
+      "fps": 15.2,
+      "megabytesPerSecond": 3.5,
+      "layoutReads": 4,
+      "uniquePictures": 38,
+      "firstTime": 8.335541,
+      "lastTime": 10.769895
+    },
+    {
+      "cap": 30,
+      "seconds": 2.5001273999999976,
+      "frames": 60,
+      "fps": 24,
+      "megabytesPerSecond": 5.5,
+      "layoutReads": 4,
+      "uniquePictures": 60,
+      "firstTime": 11.471937,
+      "lastTime": 1.900437
+    },
+    {
+      "cap": 60,
+      "seconds": 2.5003871999999974,
+      "frames": 61,
+      "fps": 24.4,
+      "megabytesPerSecond": 5.6,
+      "layoutReads": 6,
+      "uniquePictures": 61,
+      "firstTime": 2.638333,
+      "lastTime": 5.096729
+    }
+  ],
+  "limits": [
+    "One attached monitor: native mixed-DPI multi-monitor movement was not available.",
+    "The protected-video check used a real ClearKey MediaKeys object on a local fixture; commercial DRM license playback was not exercised.",
+    "The video-swap geometry test used a native landscape-to-portrait source change; YouTube itself was checked for native PiP loading."
+  ]
+}

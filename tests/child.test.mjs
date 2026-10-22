@@ -5,12 +5,22 @@
 import fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // The real base class is provided by Gecko. The shim stands in for it: it
 // collects what the child sends, so the test can read it.
-const SHIM = `class JSWindowActorChild {
+const SHIM = `
+const timerQueue = globalThis.__pipTimerQueue;
+const ChromeUtils = { importESModule: () => ({
+  setTimeout: (fn) => timerQueue.push(fn),
+  clearTimeout: (id) => { timerQueue[id - 1] = null; },
+}) };
+class JSWindowActorChild {
   sendAsyncMessage(name, data, transfers) {
     (globalThis.__pipSent ??= []).push({ name, data, transfers: transfers ?? [] });
+    if (name === "PipMirror:Frame" && !this.holdAck) {
+      this.receiveMessage({ name: "PipMirror:FrameAck", data: { session: data.session } });
+    }
   }
 }
 `;
@@ -41,6 +51,7 @@ const makeVideo = (opts = {}) => {
     readyState: opts.readyState ?? 4,
     paused: opts.paused ?? false,
     ended: false,
+    isConnected: true,
     muted: false,
     volume: 1,
     currentTime: opts.time ?? 0,
@@ -56,6 +67,7 @@ const makeVideo = (opts = {}) => {
   };
   if (opts.frameCallback !== false) {
     video.requestVideoFrameCallback = (fn) => {
+      if (opts.brokenFrameCallback) throw new Error("registration failed");
       callbacks.set(nextId, fn);
       return nextId++;
     };
@@ -83,11 +95,15 @@ async function mk(opts = {}) {
     height: 0,
     getContext: () => ({
       drawImage: (source, x, y, w, h) => draws.push({ source, w, h }),
-      getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      getImageData: (x, y, w, h) => {
+        if (opts.copyFails) throw new Error("SecurityError");
+        return { data: new Uint8ClampedArray(w * h * 4) };
+      },
     }),
   };
   const video = opts.noVideo ? null : makeVideo(opts.video ?? {});
   const frameQueue = [];
+  globalThis.__pipTimerQueue = frameQueue;
   const contentWindow = {
     document: {
       querySelectorAll: () => (video ? [video] : []),
@@ -105,8 +121,9 @@ async function mk(opts = {}) {
     },
   };
 
-  const module = await import(`file://${MODULE_FILE.replace(/\\/g, "/")}?${Math.random()}`);
+  const module = await import(`${pathToFileURL(MODULE_FILE).href}?${Math.random()}`);
   const child = new module.PipMirrorChild();
+  child.holdAck = !!opts.holdAck;
   child.contentWindow = contentWindow;
   child.document = contentWindow.document;
 
@@ -116,6 +133,7 @@ async function mk(opts = {}) {
     video,
     canvas,
     draws,
+    pendingFrames: () => frameQueue.filter(Boolean).length,
     names: () => sent.map((m) => m.name),
     frames: () => sent.filter((m) => m.name === "PipMirror:Frame"),
     rate: () => [...sent].reverse().find((m) => m.name === "PipMirror:Rate")?.data ?? null,
@@ -273,7 +291,97 @@ Date.now = () => clock.now;
   check("the state is announced either way", t.names().includes("PipMirror:State"), true);
 }
 
+// A failed opening copy leaves no callbacks and emits no state after stopping.
+{
+  const t = await mk({ copyFails: true });
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  check("a failed copy stops cleanly", t.names(), ["PipMirror:Started", "PipMirror:Unavailable", "PipMirror:Stopped"]);
+  check("a failed start leaves no video callback", t.video.pending(), 0);
+  check("a failed start leaves no animation callback", t.pendingFrames(), 0);
+}
+// Stop/start must not accumulate animation loops.
+{
+  const t = await mk({});
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  t.child.receiveMessage({ name: "PipMirror:Stop" });
+  check("stop cancels the animation callback", t.pendingFrames(), 0);
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  check("restart has exactly one animation callback", t.pendingFrames(), 1);
+}
+// A detached video is no longer a preview source.
+{
+  const t = await mk({});
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  t.video.isConnected = false;
+  t.runFrame();
+  check("removing the video stops its preview", t.names().at(-1), "PipMirror:Stopped");
+  check("removing the video releases all callbacks", [t.video.pending(), t.pendingFrames()], [0, 0]);
+}
+// An exposed API that throws still uses the timer fallback.
+{
+  setClock(6_000_000);
+  const t = await mk({ video: { brokenFrameCallback: true } });
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  check("the initial still is copied once", t.frames().length, 1);
+  setClock(6_000_050);
+  t.runFrame();
+  check("a broken frame callback falls back to the clock", t.frames().length, 2);
+}
+
+// A slow browser can hold at most one pixel buffer in flight.
+{
+  setClock(7_000_000);
+  const t = await mk({ holdAck: true });
+  t.child.receiveMessage({ name: "PipMirror:Start", data: { fps: 30 } });
+  for (let i = 1; i <= 10; i++) { setClock(7_000_000 + i * 50); t.video.present(); }
+  check("unacknowledged frames do not accumulate", t.frames().length, 1);
+  const session = t.frames()[0].data.session;
+  t.child.receiveMessage({ name: "PipMirror:FrameAck", data: { session } });
+  setClock(7_000_600); t.video.present();
+  check("an acknowledged frame permits the next copy", t.frames().length, 2);
+  t.child.receiveMessage({ name: "PipMirror:Stop" });
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  t.child.receiveMessage({ name: "PipMirror:FrameAck", data: { session } });
+  setClock(7_000_700); t.video.present();
+  check("an old session acknowledgement cannot release a new frame", t.frames().length, 3);
+}
+// Pacing reduces copies without changing the video itself.
+for (const fps of [15, 30, 60]) {
+  setClock(8_000_000);
+  const t = await mk({});
+  t.child.receiveMessage({ name: "PipMirror:Start", data: { fps } });
+  for (let ms = 1; ms <= 1000; ms++) { setClock(8_000_000 + ms); t.video.present(); }
+  check(`${fps} fps limits readback over one second`, t.frames().length <= fps + 1, true);
+}
+
+// Content rAF/rVFC may be suspended in a background tab; privileged timers continue.
+{
+  setClock(9_000_000);
+  const t = await mk({});
+  t.child.document.hidden = true;
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  setClock(9_000_050); t.runFrame();
+  check("a hidden document still sends new pictures", t.frames().length, 2);
+  t.child.receiveMessage({ name: "PipMirror:Configure", data: { fps: 15 } });
+  setClock(9_000_070); t.runFrame();
+  check("a lower cap immediately limits the open preview", t.frames().length, 2);
+  t.child.receiveMessage({ name: "PipMirror:Configure", data: { fps: 60 } });
+  setClock(9_000_080); t.runFrame();
+  check("a higher cap applies without restarting playback", t.frames().length, 3);
+}
+{
+  const t = await mk({ holdAck: true, video: { paused: true } });
+  t.child.receiveMessage({ name: "PipMirror:Start" });
+  t.video.currentTime = 5;
+  t.runFrame();
+  check("paused seeking respects the in-flight frame limit", t.frames().length, 1);
+  t.child.receiveMessage({ name: "PipMirror:FrameAck", data: { session: t.frames()[0].data.session } });
+  t.runFrame();
+  check("a delayed acknowledgement still delivers the latest paused seek", t.frames().at(-1).data.time, 5);
+}
+
 Date.now = realNow;
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
+fs.rmSync(MODULE_FILE, { force: true });
 process.exit(failed.length ? 1 : 0);

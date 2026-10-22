@@ -1,7 +1,22 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 (2026-10-22)
 
+- Default sidebar previews to 30 fps, with 15 and 60 fps choices. Limit copying
+  to one frame awaiting display and keep previews moving in background tabs.
+- Measure sidebar layout when it changes, with frame tracking during card
+  transitions. Fall back to a floating player when the sidebar stays unavailable.
+- Make diagnostic logs opt-in and queue writes across browser windows, with a
+  system-module queue that keeps running after a window closes.
+- Keep sidebar previews and keyboard controls working across multiple Zen
+  windows, including when one window closes.
+- Clean up timers, tab listeners, and native resize hooks when the mod unloads,
+  so it can be enabled again without restarting Zen.
+- Keep preview fallback requests tied to the correct tab, and stop preview
+  callbacks after a failed copy or when the video leaves the page.
+- Apply sidebar and tracing settings immediately. Sidebar playback buttons now
+  support keyboard focus and activation.
+- Ignore malformed player size, location, and strip-width preferences.
 - When YouTube goes to the next video, the player keeps its place instead of
   jumping to the bottom right.
 

@@ -176,8 +176,38 @@
     "defaultValue": true
   },
   {
+    "property": "pip-tuck-away.preview-fps",
+    "label": "Sidebar preview frame rate",
+    "type": "dropdown",
+    "defaultValue": "30",
+    "options": [
+      {
+        "label": "15 fps",
+        "value": "15"
+      },
+      {
+        "label": "30 fps",
+        "value": "30"
+      },
+      {
+        "label": "60 fps",
+        "value": "60"
+      }
+    ]
+  },
+  {
     "property": "pip-tuck-away.inline-in-zen",
     "label": "Pop the player out when leaving Zen",
+    "type": "checkbox",
+    "defaultValue": false
+  },
+  {
+    "type": "separator",
+    "label": "**Diagnostics**"
+  },
+  {
+    "property": "pip-tuck-away.trace",
+    "label": "Write diagnostic logs",
     "type": "checkbox",
     "defaultValue": false
   }

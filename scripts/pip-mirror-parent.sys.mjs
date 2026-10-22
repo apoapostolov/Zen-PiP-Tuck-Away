@@ -17,6 +17,13 @@ export class PipMirrorParent extends JSWindowActorParent {
     const controller = win?.PipMirror;
     if (!controller) {
       // The mod was unloaded while a frame was in flight.
+      if (message.name === "PipMirror:Frame" || message.name === "PipMirror:Started") {
+        try {
+          this.sendAsyncMessage("PipMirror:Stop", {});
+        } catch (err) {
+          // The content actor may already have been destroyed too.
+        }
+      }
       return;
     }
     const id = this.browsingContext?.id;
@@ -25,7 +32,11 @@ export class PipMirrorParent extends JSWindowActorParent {
         controller.mirrorStarted(id, message.data ?? {}, this);
         break;
       case "PipMirror:Frame":
-        controller.mirrorFrame(id, message.data);
+        try {
+          controller.mirrorFrame(id, message.data);
+        } finally {
+          this.sendAsyncMessage("PipMirror:FrameAck", { session: message.data?.session });
+        }
         break;
       case "PipMirror:Rate":
         controller.mirrorRate(id, message.data ?? {});

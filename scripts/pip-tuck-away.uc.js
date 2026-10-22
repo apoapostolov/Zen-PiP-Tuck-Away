@@ -14,6 +14,25 @@
     return;
   }
   window.__pipTuckAwayBrowser = true;
+  let destroyed = false;
+  const timers = new Set();
+  const loadingWindows = new Map();
+  const cancelTimer = (id) => {
+    clearTimeout(id);
+    timers.delete(id);
+  };
+  const schedule = (callback, delay) => {
+    if (destroyed) return 0;
+    let id;
+    let ran = false;
+    id = setTimeout(() => {
+      ran = true;
+      timers.delete(id);
+      if (!destroyed) callback();
+    }, delay);
+    if (!ran) timers.add(id);
+    return id;
+  };
 
   const PLAYER_URL = "chrome://global/content/pictureinpicture/player.xhtml";
   const PLAYER_SCRIPT = "chrome://sine/content/pip-tuck-away/scripts/pip-player.uc.js";
@@ -21,6 +40,7 @@
   const AUTO_TUCK_PREF = "pip-tuck-away.auto-tuck";
   const INLINE_PREF = "pip-tuck-away.inline-in-zen";
   const WIDGET_PREF = "pip-tuck-away.in-widget";
+  const FPS_PREF = "pip-tuck-away.preview-fps";
   const PIP_MODULE = "moz-src:///toolkit/components/pictureinpicture/PictureInPicture.sys.mjs";
 
   const pref = (name, fallback) => {
@@ -35,6 +55,14 @@
   };
 
   const log = (message, err) => console.error(`[PiP Tuck Away] ${message}`, err ?? "");
+  const previewFPS = () => {
+    try {
+      const rate = Services.prefs.getStringPref(FPS_PREF, "30");
+      return ["15", "30", "60"].includes(rate) ? Number(rate) : 30;
+    } catch (err) {
+      return 30;
+    }
+  };
 
   // ---------- trace
   //
@@ -45,7 +73,6 @@
   // small log in the profile that can be read afterwards.
 
   const TRACE_PREF = "pip-tuck-away.trace";
-  const TRACE_MAX = 96 * 1024;
 
   /**
    * Where the trace goes.
@@ -81,7 +108,7 @@
 
   const trace = (message) => {
     try {
-      if (!pref(TRACE_PREF, true)) {
+      if (!pref(TRACE_PREF, false)) {
         return;
       }
       const path = tracePath();
@@ -90,23 +117,10 @@
         log(message);
         return;
       }
-      IOUtils.exists(path)
-        .then(async (there) => {
-          if (!there) {
-            // Appending needs a file to append to: writing one without a mode
-            // is what creates it. Without this the trace never existed at all,
-            // and every write failed with NS_ERROR_FILE_NOT_FOUND in silence.
-            await IOUtils.writeUTF8(path, line);
-            return;
-          }
-          const info = await IOUtils.stat(path);
-          if (info.size > TRACE_MAX) {
-            await IOUtils.remove(path, { ignoreAbsent: true });
-            await IOUtils.writeUTF8(path, line);
-            return;
-          }
-          await IOUtils.writeUTF8(path, line, { mode: "append" });
-        })
+      const { appendTrace } = ChromeUtils.importESModule(
+        "resource://pip-tuck-away/scripts/pip-trace.sys.mjs?v=1"
+      );
+      appendTrace(path, line)
         .catch((err) => {
           try {
             Services.prefs.setStringPref(
@@ -184,7 +198,10 @@
 
   const detachKeys = (win) => {
     try {
-      win.removeEventListener("keydown", onKeyDown, true);
+      const keys = win[KEYS_FLAG];
+      if (!keys?.owners?.delete(window) || keys.owners.size) return;
+      win.removeEventListener("keydown", keys.handler, true);
+      win.removeEventListener("unload", keys.onUnload);
       delete win[KEYS_FLAG];
     } catch (err) {
       // A window that is already gone needs no cleanup.
@@ -194,7 +211,7 @@
   const onTabSelect = () => {
     // The platform's own handler runs on the same event; letting it go first
     // means this is only needed when its registration is missing.
-    setTimeout(closeForForegroundTab, 0);
+    schedule(closeForForegroundTab, 0);
     const now = window.gBrowser?.selectedBrowser ?? null;
     const previous = lastSelected;
     lastSelected = now;
@@ -205,7 +222,7 @@
     // The same goes for a tab that was only asked a moment ago: arriving at it
     // before it answered must not put its video in the widget behind its back.
     if (pendingBrowser && isForegroundTab(pendingBrowser)) {
-      abandonPending("its own tab came forward");
+      abandonPending("its own tab came forward", false);
     }
     // Leaving a tab shows its video in the widget, playing or paused. The
     // browser's own request only does this while a video is playing, and a
@@ -226,7 +243,7 @@
       stopMirror("its tab was closed");
     }
     if (browser === pendingBrowser) {
-      abandonPending("its tab was closed");
+      abandonPending("its tab was closed", false);
     }
     if (browser === lastMirrored) {
       lastMirrored = null;
@@ -252,16 +269,21 @@
 
   const attachKeys = (win) => {
     try {
-      if (!win || win.closed || win[KEYS_FLAG]) {
+      if (destroyed || !win || win.closed) return;
+      if (win[KEYS_FLAG]) {
+        win[KEYS_FLAG].owners.add(window);
         return;
       }
       if (!String(win.location?.href ?? "").startsWith("chrome://")) {
         return;
       }
       win.addEventListener("keydown", onKeyDown, true);
-      win[KEYS_FLAG] = true;
-      watchTabs(win);
-      win.addEventListener("unload", () => detachKeys(win), { once: true });
+      const onUnload = () => {
+        win.removeEventListener("keydown", onKeyDown, true);
+        delete win[KEYS_FLAG];
+      };
+      win[KEYS_FLAG] = { handler: onKeyDown, onUnload, owners: new Set([window]) };
+      win.addEventListener("unload", onUnload, { once: true });
     } catch (err) {
       log("could not add the keyboard listener to a window", err);
     }
@@ -275,12 +297,13 @@
   };
 
   attachAllWindows();
+  watchTabs(window);
 
   // ---------- attach the player half
 
   const decorate = (win) => {
     try {
-      if (!win || win.__pipTuckAway) {
+      if (destroyed || !win || win.__pipTuckAway) {
         return;
       }
       // A window opened a moment ago still reports about:blank, so this is the
@@ -323,9 +346,9 @@
       if (Date.now() - started > 1500) {
         return;
       }
-      setTimeout(tick, 16);
+      schedule(tick, 16);
     };
-    setTimeout(tick, 0);
+    schedule(tick, 0);
   };
 
   const observer = {
@@ -338,18 +361,13 @@
       attachKeys(subject);
       // The window is about:blank at this point, so the chord is attached once
       // its real document has loaded.
-      subject.addEventListener(
-        "load",
-        () => {
-          attachKeys(subject);
-          setTimeout(() => {
-            decorate(subject);
-            // A player window is the platform's own. This mod never moves it:
-            // its remembered place and its tucked edge belong to it alone.
-          }, 0);
-        },
-        { once: true }
-      );
+      const onLoad = () => {
+        loadingWindows.delete(subject);
+        attachKeys(subject);
+        schedule(() => decorate(subject), 0);
+      };
+      loadingWindows.set(subject, onLoad);
+      subject.addEventListener("load", onLoad, { once: true });
       // With auto tuck on, the player should never be seen in its normal
       // place, so get in as soon as the player document exists.
       if (pref(AUTO_TUCK_PREF, false)) {
@@ -363,24 +381,11 @@
 
   // A player window created before this script ran is covered by existing();
   // re-check once in case it was still loading.
-  setTimeout(existing, 1000);
+  schedule(existing, 1000);
 
 
 
-  // ---------- keep playback inside Zen until the browser is left
-  //
-  // Firefox opens the player window in two ways: the user asks for it, or its own
-  // auto toggle fires when a playing tab is hidden by a tab switch.
-  //
-  // An earlier version held the automatic request back, on the theory that Zen's
-  // sidebar media card would drive the video instead. It does not work that way
-  // in practice: the card shows up by itself for any playing background tab, so
-  // the only thing the hold added was a player that arrived late or not at all,
-  // while a video with no card anywhere both showed a player and confused the
-  // first tab switch with the second. Nothing is held back now. A tab switch
-  // behaves exactly as the platform intends, and the mod asks for a player only
-  // in the one case the platform cannot handle: leaving Zen with the video's own
-  // tab in front.
+  // ---------- hand automatic playback between the sidebar and player
 
   let requestCooldownUntil = 0; // two focus blurs in a row must not ask twice
   let floatedWindow = null; // the player this mod asked for on leaving Zen
@@ -393,6 +398,17 @@
       log("could not reach the picture-in-picture module", err);
       return null;
     }
+  };
+
+  const sharedState = () => {
+    const api = pipApi();
+    if (!api) return null;
+    return (api.__pipTuckAwayState ??= {
+      windows: new Set(),
+      handlers: new Map(),
+      original: api.handlePictureInPictureRequest,
+      wrapped: null,
+    });
   };
 
   /**
@@ -481,18 +497,7 @@
     }
   };
 
-  // ---------- the video in Zen's media card
-  //
-  // The card is a row in the sidebar: a thumbnail, the name, the playtime, and
-  // the buttons. The picture itself cannot be moved into the page: the player's
-  // video lives in a separate window with its own browsing context, and the only
-  // way to render a video's pixels inside the document is a canvas mirror, which
-  // loses audio and fails on anything protected.
-  //
-  // The panel is pixels in the sidebar, so the room it needs is reserved inside
-  // the card, under the name and the playtime, and the player window is sized
-  // and moved into it. The video is the real video, with its real sound, and
-  // nothing is reloaded, so playback never restarts.
+  // ---------- reserve space for the sidebar canvas above the media card
 
   const PANEL_MAX_SHARE = 0.45; // of the window height, so a tall video cannot eat the sidebar
   const PANEL_INSET = 6; // px between the panel and the edges of its slot
@@ -562,8 +567,7 @@
    *
    * A card that never appears is a question about Zen, not about this mod, and
    * it cannot be answered from the source: the answer is what the card does on
-   * one real launch. This watch runs only while tracing is on, and it is cheap
-   * enough to leave running: one read of two elements a quarter of a second.
+   * one real launch. This optional diagnostic reads the card once per second.
    */
   let lastCardNote = "";
   let cardWatchTimer = null;
@@ -577,10 +581,10 @@
   };
 
   const startCardWatch = () => {
-    if (cardWatchTimer || !pref(TRACE_PREF, true)) {
+    if (cardWatchTimer || !pref(TRACE_PREF, false)) {
       return;
     }
-    cardWatchTimer = setInterval(cardWatchTick, 250);
+    cardWatchTimer = setInterval(cardWatchTick, 1000);
     cardWatchTick();
   };
 
@@ -612,7 +616,7 @@
 
   const MIRROR_ACTOR = "PipMirror";
   const MIRROR_RES = "pip-tuck-away";
-  const MIRROR_VERSION = "4"; // bump when either actor file changes
+  const MIRROR_VERSION = "11"; // bump when either actor file changes
   const MIRROR_ID = "pip-tuck-away-mirror";
   // Long enough for a slow first frame, short enough that a video which cannot
   // be copied is a player window rather than an empty box.
@@ -631,7 +635,12 @@
   let mirrorPainted = false; // this tab has sent a picture
   let boxHasPicture = false; // the canvas holds one, whoever sent it
   let mirrorTimer = 0; // gives up when the tab on screen sends nothing
-  let panelWatch = 0; // the frame the panel is measured on
+  let panelWatch = 0; // the next scheduled layout measurement
+  let panelResize = null;
+  let panelMutations = null;
+  let panelBar = null;
+  let panelCard = null;
+  const panelTransitions = new Map();
   let lastPanelNote = ""; // what the panel was last placed at, so idle frames write nothing
   let heldRequest = null; // the request the panel stands in for
   let lastMirrored = null; // the tab it was showing when the browser lost focus
@@ -697,6 +706,7 @@
         safeForUntrustedWebProcess: true,
       });
       mirrorReady = true;
+      sharedState()?.windows.add(window);
       // Registration is lazy: wake the actor for the tabs that are already open.
       for (const browser of window.gBrowser?.browsers ?? []) {
         try {
@@ -711,6 +721,7 @@
         // actor belongs to the application rather than to one window: its
         // controller is reached through the window the tab lives in.
         mirrorReady = true;
+        sharedState()?.windows.add(window);
       } else {
         log("the widget mirror could not register its actor", err);
         mirrorReady = false;
@@ -722,7 +733,9 @@
     abandonPending("unloaded");
     stopMirror("unloaded");
     try {
-      if (mirrorReady) {
+      const shared = sharedState();
+      shared?.windows.delete(window);
+      if (mirrorReady && !shared?.windows.size) {
         ChromeUtils.unregisterWindowActor(MIRROR_ACTOR);
       }
     } catch (err) {
@@ -786,9 +799,9 @@
   };
 
   const mirrorButton = (path, label, onPress) => {
-    const button = window.document.createElementNS(XHTML_NS, "div");
+    const button = window.document.createElementNS(XHTML_NS, "button");
     button.className = "pip-tuck-away-mirror-button";
-    button.setAttribute("role", "button");
+    button.setAttribute("type", "button");
     button.setAttribute("aria-label", label);
     button.title = label;
     const svg = window.document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -819,13 +832,21 @@
     const bar = window.document?.querySelector?.(MEDIA_BAR);
     const card = mediaCards()[0] ?? null;
     const box = mirrorBox();
-    if (!bar || !card || !box) {
+    if (!bar || bar.hidden || bar.hasAttribute?.("hidden") || !card || !box) {
+      if (mirrorActor && !mirrorTimer) startLivePatience();
       return;
     }
     const cardRect = card.getBoundingClientRect?.();
     const barRect = bar.getBoundingClientRect?.();
-    if (!cardRect || !barRect || cardRect.width < 60) {
+    if (!cardRect || !barRect || cardRect.width < 60 || barRect.width < 40 ||
+        barRect.right <= 0 || barRect.bottom <= 0 ||
+        barRect.left >= window.innerWidth || barRect.top >= window.innerHeight) {
+      if (mirrorActor && !mirrorTimer) startLivePatience();
       return;
+    }
+    if (mirrorPainted && mirrorTimer) {
+      cancelTimer(mirrorTimer);
+      mirrorTimer = 0;
     }
     const width = Math.max(80, Math.round(cardRect.width - PANEL_INSET * 2));
     const limit = Math.round((window.innerHeight || 800) * PANEL_MAX_SHARE);
@@ -841,7 +862,7 @@
     // The panel hangs off the card's own top edge rather than off the top of
     // the toolbar. The room the toolbar gives up is what keeps the panel inside
     // the widget, but the panel's place no longer depends on it: the bottom edge
-    // is measured from the card every frame, so a room that has not caught up
+    // follows the card through layout changes, so room that has not caught up
     // yet cannot leave the panel sitting over the card.
     const bottom = Math.round(barRect.bottom - cardRect.top + PANEL_INSET);
     const note = `${left},${bottom},${width}x${height} room=${room}`;
@@ -857,30 +878,83 @@
     box.style.bottom = `${bottom}px`;
   };
 
-  /**
-   * The panel is measured again while it is on screen.
-   *
-   * The first picture can arrive before the widget has a card to measure, and a
-   * panel placed once at that moment keeps whatever size it had when nothing
-   * could be measured. Re-measuring is a rectangle read on a slow timer, and it
-   * is what keeps the panel the width of the widget as the widget changes.
-   */
-  const startPanelWatch = () => {
-    if (panelWatch) {
-      return;
-    }
-    const follow = () => {
-      panelWatch = window.requestAnimationFrame(follow);
+  // Observe sidebar changes while idle. Only active CSS transitions need
+  // measurements on successive frames, so hover expansion remains aligned.
+  const schedulePanel = () => {
+    if (panelWatch || !mirrorBox()) return;
+    panelWatch = window.requestAnimationFrame(() => {
+      panelWatch = 0;
+      if (!mirrorBox()) return;
+      for (const target of panelTransitions.keys()) {
+        if (target.isConnected === false) panelTransitions.delete(target);
+      }
+      const card = mediaCards()[0] ?? null;
+      if (card !== panelCard) {
+        if (panelCard) panelResize?.unobserve(panelCard);
+        panelCard = card;
+        if (card) panelResize?.observe(card);
+      }
       placeMirror();
-    };
-    panelWatch = window.requestAnimationFrame(follow);
+      if (panelTransitions.size) schedulePanel();
+    });
+  };
+
+  const onPanelTransition = (event) => {
+    // Writes to the preview itself must not keep its measurement loop alive.
+    if (mirrorBox()?.contains(event.target)) return;
+    if (!panelBar?.contains(event.target) && !event.target?.contains?.(panelBar)) return;
+    if (event.type === "transitionrun") {
+      if (!panelTransitions.has(event.target)) panelTransitions.set(event.target, new Set());
+      panelTransitions.get(event.target).add(event.propertyName);
+    } else {
+      const properties = panelTransitions.get(event.target);
+      properties?.delete(event.propertyName);
+      if (!properties?.size) panelTransitions.delete(event.target);
+    }
+    schedulePanel();
+  };
+
+  const onPanelMutation = (records) => {
+    const box = mirrorBox();
+    if (records.some((record) => !box?.contains(record.target))) schedulePanel();
+  };
+
+  const startPanelWatch = () => {
+    if (panelBar) return;
+    panelBar = window.document?.querySelector?.(MEDIA_BAR);
+    if (!panelBar) return;
+    panelResize = new window.ResizeObserver(schedulePanel);
+    panelResize.observe(panelBar);
+    panelMutations = new window.MutationObserver(onPanelMutation);
+    panelMutations.observe(panelBar, {
+      childList: true, subtree: true, attributes: true,
+      attributeFilter: ["class", "style", "hidden", "expanded"],
+    });
+    for (let ancestor = panelBar.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      panelMutations.observe(ancestor, {
+        attributes: true,
+        attributeFilter: ["class", "style", "hidden", "zen-compact-mode", "zen-user-show", "zen-sidebar-expanded"],
+      });
+    }
+    for (const type of ["transitionrun", "transitionend", "transitioncancel"]) {
+      window.addEventListener(type, onPanelTransition, true);
+    }
+    window.addEventListener("resize", schedulePanel);
+    schedulePanel();
   };
 
   const stopPanelWatch = () => {
-    if (panelWatch) {
-      window.cancelAnimationFrame?.(panelWatch);
-      panelWatch = 0;
+    if (panelWatch) window.cancelAnimationFrame?.(panelWatch);
+    panelWatch = 0;
+    panelResize?.disconnect();
+    panelMutations?.disconnect();
+    panelResize = panelMutations = null;
+    for (const type of ["transitionrun", "transitionend", "transitioncancel"]) {
+      window.removeEventListener(type, onPanelTransition, true);
     }
+    window.removeEventListener("resize", schedulePanel);
+    panelBar = panelCard = null;
+    panelTransitions.clear();
     lastPanelNote = "";
   };
 
@@ -893,10 +967,6 @@
     if (!mirrorPainted) {
       mirrorPainted = true;
       boxHasPicture = true;
-      if (mirrorTimer) {
-        clearTimeout(mirrorTimer);
-        mirrorTimer = 0;
-      }
       box.removeAttribute("waiting");
       placeMirror();
       startPanelWatch();
@@ -962,25 +1032,32 @@
 
   const startLivePatience = () => {
     if (mirrorTimer) {
-      clearTimeout(mirrorTimer);
+      cancelTimer(mirrorTimer);
     }
-    mirrorTimer = setTimeout(() => {
+    mirrorTimer = schedule(() => {
       mirrorTimer = 0;
-      if (mirrorPainted) {
+      if (mirrorPainted && mediaCardState() === "shown") {
         return;
       }
       const held = heldRequest;
+      const browser = mirrorBrowser;
+      const playing = !mirrorState.paused;
       heldRequest = null;
       stopMirror("no picture arrived");
-      handToPlatform(held, "no picture arrived");
+      if (held) {
+        handToPlatform(held, "no visible preview arrived");
+      } else if (browser && playing) {
+        forcedPip.add(browser);
+        if (!askForPlayer(browser)) forcedPip.delete(browser);
+      }
     }, MIRROR_PATIENCE);
   };
 
   const startPendingPatience = () => {
     if (pendingTimer) {
-      clearTimeout(pendingTimer);
+      cancelTimer(pendingTimer);
     }
-    pendingTimer = setTimeout(() => {
+    pendingTimer = schedule(() => {
       pendingTimer = 0;
       abandonPending("no picture arrived");
     }, MIRROR_PATIENCE);
@@ -1005,10 +1082,16 @@
       return false;
     }
     if (browser === mirrorBrowser || browser === pendingBrowser) {
+      // TabSelect can start the preview before the platform requests PiP.
+      // Retain that later request so a failed copy still gets a real player.
+      if (held) {
+        if (browser === mirrorBrowser) heldRequest = held;
+        else pendingHeld = held;
+      }
       return true;
     }
     const bar = window.document?.querySelector?.(MEDIA_BAR);
-    if (!bar) {
+    if (!bar || !pref("zen.mediacontrols.enabled", true)) {
       return false;
     }
     let actor = null;
@@ -1044,14 +1127,14 @@
       box.setAttribute("waiting", "");
     }
     try {
-      actor.sendAsyncMessage("PipMirror:Start", {});
+      actor.sendAsyncMessage("PipMirror:Start", { fps: previewFPS() });
     } catch (err) {
       if (mirrorBrowser === browser) {
         mirrorActor = null;
         mirrorBrowser = null;
         heldRequest = null;
         if (mirrorTimer) {
-          clearTimeout(mirrorTimer);
+          cancelTimer(mirrorTimer);
           mirrorTimer = 0;
         }
         if (!pendingBrowser) {
@@ -1078,12 +1161,12 @@
     const oldActor = mirrorActor;
     mirrorActor = pendingActor;
     mirrorBrowser = pendingBrowser;
-    heldRequest = pendingHeld ?? heldRequest;
+    heldRequest = pendingHeld;
     pendingActor = null;
     pendingBrowser = null;
     pendingHeld = null;
     if (pendingTimer) {
-      clearTimeout(pendingTimer);
+      cancelTimer(pendingTimer);
       pendingTimer = 0;
     }
     if (oldActor && oldActor !== mirrorActor) {
@@ -1099,9 +1182,9 @@
     trace("mirror: the panel follows the tab");
   };
 
-  const abandonPending = (reason = "") => {
+  const abandonPending = (reason = "", fallback = true) => {
     if (pendingTimer) {
-      clearTimeout(pendingTimer);
+      cancelTimer(pendingTimer);
       pendingTimer = 0;
     }
     const actor = pendingActor;
@@ -1112,14 +1195,14 @@
     if (actor) {
       stopActor(actor);
     }
-    if (held) {
+    if (held && fallback) {
       handToPlatform(held, reason || "the copy could not start");
     }
   };
 
   const stopMirror = (reason = "") => {
     if (mirrorTimer) {
-      clearTimeout(mirrorTimer);
+      cancelTimer(mirrorTimer);
       mirrorTimer = 0;
     }
     // A tab asked while this one was on screen is done with too: the panel it
@@ -1129,6 +1212,7 @@
     const actor = mirrorActor;
     mirrorActor = null;
     mirrorBrowser = null;
+    heldRequest = null;
     mirrorPainted = false;
     boxHasPicture = false;
     mirrorContext = null;
@@ -1148,8 +1232,6 @@
     }
   };
 
-  const mirroring = () => !!mirrorActor || !!pendingActor;
-
   /** Hand the request the panel stood in for to the platform, and let it go. */
   const fallBackToPlayer = (why) => {
     const held = heldRequest;
@@ -1167,7 +1249,7 @@
     forcedPip.add(browser);
     heldRequest = null;
     stopMirror("asked for a player");
-    askForPlayer(browser);
+    if (!askForPlayer(browser)) forcedPip.delete(browser);
   };
 
   /**
@@ -1191,6 +1273,7 @@
       }
       if (data?.width && data?.height) {
         mirrorAspect = data.width / data.height;
+        schedulePanel();
       }
       mirrorState = {
         paused: !!data?.paused,
@@ -1225,7 +1308,7 @@
       );
     },
     mirrorState(id, state) {
-      if (id !== tabIdOf(mirrorBrowser) && !isPendingTab(id)) {
+      if (id !== tabIdOf(mirrorBrowser)) {
         return;
       }
       mirrorState = { ...mirrorState, ...state };
@@ -1271,7 +1354,7 @@
     if (!pref(WIDGET_PREF, true)) {
       return false;
     }
-    if (forcedPip.has(browser)) {
+    if (forcedPip.delete(browser)) {
       return false;
     }
     return browserInFront();
@@ -1279,34 +1362,35 @@
 
   const installPipHook = () => {
     const api = pipApi();
-    if (!api || api.handlePictureInPictureRequest.__pipTuckAway) {
-      return;
-    }
-    trueOriginal = api.handlePictureInPictureRequest.bind(api);
-    const wrapped = async (wgp, videoData) => {
+    const shared = sharedState();
+    if (!api || !shared) return;
+    trueOriginal = shared.original.bind(api);
+    shared.handlers.set(window, (wgp, videoData) => {
       const fromTabSwitch = requestedByTabSwitch(wgp);
       const browser = browserOf(wgp);
-      if (fromTabSwitch && browser) {
-        autoPipped.add(browser);
-      }
-      if (shouldMirror(browser)) {
-        // The widget shows this video and no player window is opened, so the
-        // browser's own picture-in-picture is never in use while it is in front.
-        // The request travels with the panel: if the copy turns out to be
-        // impossible, at once or a moment later, the platform still gets it and
-        // a player opens as it always did.
-        if (armMirror(browser, { wgp, videoData, browser })) {
-          return true;
-        }
+      if (fromTabSwitch && browser) autoPipped.add(browser);
+      if (shouldMirror(browser) && armMirror(browser, { wgp, videoData, browser })) {
+        return true;
       }
       trace(
         `request: tabSwitch=${fromTabSwitch} focus=${requestingWindowFocused(wgp)} ` +
           `inline=${pref(INLINE_PREF, false)} card=${mediaCardState()} => passed to the platform`
       );
       return trueOriginal(wgp, videoData);
+    });
+    if (shared.wrapped) return;
+    shared.wrapped = (wgp, videoData) => {
+      const browser = browserOf(wgp);
+      const owner = browser?.ownerGlobal ?? wgp?.browsingContext?.topChromeWindow;
+      const handler = shared.handlers.get(owner) ??
+        [...shared.handlers].find(([win]) =>
+          win.gBrowser?.browsers?.includes(browser) || win.gBrowser?.selectedBrowser === browser
+        )?.[1];
+      // Unknown owners must never be mirrored in another window's sidebar.
+      return handler ? handler(wgp, videoData) : shared.original.call(api, wgp, videoData);
     };
-    wrapped.__pipTuckAway = true;
-    api.handlePictureInPictureRequest = wrapped;
+    shared.wrapped.__pipTuckAway = true;
+    api.handlePictureInPictureRequest = shared.wrapped;
   };
 
   /**
@@ -1411,10 +1495,10 @@
         return;
       }
       if (++tries < 10) {
-        setTimeout(look, 120);
+        schedule(look, 120);
       }
     };
-    setTimeout(look, 120);
+    schedule(look, 120);
   };
 
   /** The window lost focus: ask the tab in front for a player, once. */
@@ -1576,7 +1660,7 @@
         if (browser.docShellIsActive) {
           releaseDocShell(api, browser);
         }
-        win.close();
+        closeFloated(win);
       }
     } catch (err) {
       log("could not fold the player for the foregrounded tab", err);
@@ -1660,7 +1744,7 @@
       return;
     }
     floatedWindow = null;
-    setTimeout(() => {
+    schedule(() => {
       // Closed by the player itself, through return to tab or the close button,
       // before the fold got there: nothing left to do.
       if (!win.closed) {
@@ -1669,10 +1753,34 @@
     }, FOLD_DELAY);
   };
 
+  const onBrowserPref = (subject, topic, name) => {
+    if (topic !== "nsPref:changed") return;
+    if (name === WIDGET_PREF && !pref(WIDGET_PREF, true)) {
+      fallBackToPlayer("the sidebar preview was disabled");
+    }
+    if (name === TRACE_PREF) {
+      if (cardWatchTimer) clearInterval(cardWatchTimer);
+      cardWatchTimer = null;
+      startCardWatch();
+    }
+    if (name === FPS_PREF) {
+      for (const actor of [mirrorActor, pendingActor]) {
+        try {
+          actor?.sendAsyncMessage("PipMirror:Configure", { fps: previewFPS() });
+        } catch (err) {
+          // A navigating tab will receive the setting when its next preview starts.
+        }
+      }
+    }
+  };
+
   setupMirror();
   lastSelected = window.gBrowser?.selectedBrowser ?? null;
   installPipHook();
   startCardWatch();
+  Services.prefs.addObserver(WIDGET_PREF, onBrowserPref);
+  Services.prefs.addObserver(TRACE_PREF, onBrowserPref);
+  Services.prefs.addObserver(FPS_PREF, onBrowserPref);
 
   trace(
     `browser half loaded; inline=${pref(INLINE_PREF, false)} ` +
@@ -1691,7 +1799,18 @@
   // ---------- teardown (Sine calls this when the mod is disabled or updated)
 
   const unload = () => {
+    if (destroyed) return;
+    destroyed = true;
+    for (const id of timers) clearTimeout(id);
+    timers.clear();
+    for (const [win, onLoad] of loadingWindows) {
+      win.removeEventListener("load", onLoad);
+    }
+    loadingWindows.clear();
     teardownMirror();
+    Services.prefs.removeObserver(WIDGET_PREF, onBrowserPref);
+    Services.prefs.removeObserver(TRACE_PREF, onBrowserPref);
+    Services.prefs.removeObserver(FPS_PREF, onBrowserPref);
     releasePanelRoom();
     if (cardWatchTimer) {
       clearInterval(cardWatchTimer);
@@ -1702,6 +1821,10 @@
     } catch (err) {
       log("could not unregister the window observer", err);
     }
+    const strip = window.gBrowser?.tabContainer;
+    strip?.removeEventListener("TabSelect", onTabSelect);
+    strip?.removeEventListener("TabClose", onTabClose);
+    if (strip) delete strip[KEYS_FLAG];
     detachKeys(window);
     for (const win of Services.wm.getEnumerator(null)) {
       detachKeys(win);
@@ -1713,12 +1836,19 @@
       window.removeEventListener(type, foldBack);
     }
     const api = pipApi();
-    if (api && trueOriginal && api.handlePictureInPictureRequest.__pipTuckAway) {
-      api.handlePictureInPictureRequest = trueOriginal;
+    const shared = api?.__pipTuckAwayState;
+    shared?.handlers.delete(window);
+    if (shared && !shared.handlers.size) {
+      if (api.handlePictureInPictureRequest === shared.wrapped) {
+        api.handlePictureInPictureRequest = shared.original;
+      }
+      delete api.__pipTuckAwayState;
+      for (const win of Services.wm.getEnumerator("Toolkit:PictureInPicture")) {
+        win.__pipTuckAway?.destroy?.();
+      }
     }
-    for (const win of Services.wm.getEnumerator("Toolkit:PictureInPicture")) {
-      win.__pipTuckAway?.destroy?.();
-    }
+    delete window.PipMirror;
+    delete window.__pipTuckAwayBrowser;
   };
 
   if (typeof window.addUnloadListener === "function") {

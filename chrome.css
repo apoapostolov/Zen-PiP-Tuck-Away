@@ -51,6 +51,9 @@
 }
 
 #pip-tuck-away-mirror .pip-tuck-away-mirror-button {
+  padding: 0;
+  border: 0;
+  appearance: none;
   width: 24px;
   height: 24px;
   border-radius: 5px;
@@ -64,6 +67,11 @@
 
 #pip-tuck-away-mirror .pip-tuck-away-mirror-button:hover {
   background: rgba(0, 0, 0, 0.75);
+}
+
+#pip-tuck-away-mirror .pip-tuck-away-mirror-button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 #pip-tuck-away-mirror .pip-tuck-away-mirror-button svg {

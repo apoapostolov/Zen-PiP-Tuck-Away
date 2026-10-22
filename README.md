@@ -6,8 +6,8 @@ Keep a video playing at the screen edge while you use the rest of your desktop.
 
 ![Zen Browser](https://img.shields.io/badge/Zen-Browser-f76f53?style=flat-square)
 ![Sine mod](https://img.shields.io/badge/Sine-mod-6e56cf?style=flat-square)
-[![Version: 1.0.0](https://img.shields.io/badge/version-1.0.0-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.0)
-[![Released: 2026-10-22](https://img.shields.io/badge/released-2026--10--22-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.0)
+[![Version: 1.0.1](https://img.shields.io/badge/version-1.0.1-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.1)
+[![Released: 2026-10-22](https://img.shields.io/badge/released-2026--10--22-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.1)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -63,8 +63,9 @@ tab. Click the preview to play or pause, or use its pop-out button for a floatin
 player. Returning to the video's tab removes the preview. Switching to another
 application opens a floating player if the previewed video is playing.
 
-This feature is experimental and enabled by default. The preview runs at a lower
-frame rate and cannot show protected video; those videos open in the regular
+This feature is experimental and enabled by default. The preview defaults to
+30 fps; choose 15 or 60 fps in settings. It cannot show protected video;
+those videos open in the regular
 picture-in-picture player. Turn off **Integrate in Sidebar Media Controls** if
 you prefer a floating player while browsing.
 
@@ -86,7 +87,7 @@ For a bug report, include your Zen and Sine versions, any other PiP mods, and th
 steps that reproduce the problem. See [contributing](CONTRIBUTING.md) for tests
 and diagnostic logs.
 
-[Changelog](CHANGELOG.md) · [1.0 release notes](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.0)
+[Changelog](CHANGELOG.md) · [1.0.1 release notes](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.1)
 
 ## Credits
 

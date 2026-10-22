@@ -2136,5 +2136,46 @@ for (const r of results) {
 }
 
 
+// Disabling the mod restores both native resize hooks and clears visual state.
+{
+  const t = mk({});
+  t.api.tuck("right");
+  t.flush();
+  t.api.destroy();
+  t.api.destroy();
+  t.flush();
+  t.window.resizeToVideo({ left: 550, top: 330, width: 480, height: 270 });
+  check("the window resize hook is restored on destroy", t.pos(), [550, 330]);
+  t.window.Player.resizeToVideo({ left: 650, top: 430, width: 480, height: 270 });
+  check("the Player resize hook is restored on destroy", t.pos(), [650, 430]);
+  check("destroy removes frost and controls attributes", [t.attrs.has("pip-frosted"), t.attrs.has("pip-controls")], [false, false]);
+  t.winFire("unload");
+  check("an old unload handler cannot move the player", t.pos(), [650, 430]);
+}
+
+// A later wrapper can safely retain our hook after the mod is disabled.
+{
+  const t = mk({});
+  const hook = t.window.resizeToVideo;
+  const laterHook = function (...args) { return hook.apply(this, args); };
+  t.window.resizeToVideo = laterHook;
+  t.api.destroy();
+  t.window.resizeToVideo({ left: 750, top: 450, width: 480, height: 270 });
+  check("destroy preserves a later resize wrapper", t.window.resizeToVideo === laterHook, true);
+  check("a retained disabled hook passes through to native resizing", t.pos(), [750, 450]);
+}
+
+// Unknown preferences must not resolve to inherited object properties.
+{
+  const t = mk({
+    "pip-tuck-away.width": "__proto__",
+    "pip-tuck-away.size": "toString",
+    "pip-tuck-away.place": "__proto__",
+  });
+  check("malformed width falls back to the normal strip", t.api.stats().sliver, 24);
+  check("malformed size leaves native sizing intact", t.api.size().want, null);
+  check("malformed location leaves native placement intact", t.api.place().want, null);
+}
+
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

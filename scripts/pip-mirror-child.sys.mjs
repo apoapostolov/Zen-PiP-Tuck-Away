@@ -3,22 +3,17 @@
  *
  * This file runs inside the page. Its job is to find the video that is playing
  * there, copy its frames into a small canvas, and post the pixels to the browser
- * window, which paints them in the sidebar. The video itself is never moved,
- * paused or touched: the page keeps playing it, the page keeps its sound, and
- * nothing is loaded twice.
+ * window, which paints them in the sidebar. Copying leaves the video in the
+ * page with its sound; only explicit playback commands change its state.
  *
- * The picture is a copy: the video is drawn into an offscreen canvas at the
- * size the sidebar shows it, and the pixels are read back and sent. That is the
- * only route in Firefox, where the frame-stream APIs exist in workers rather
- * than on the page, and the window-scoped `MediaStreamTrackProcessor` is a
- * webcompat shim built out of a canvas: same cost as copying, none of the
- * benefit. So the work goes into making the copy cheap:
+ * The video is scaled into a small canvas, then its pixels are read back and
+ * sent to the browser. Readback and process messaging are bounded:
  *
- *  - A new frame is copied when the video presents one, through
- *    `requestVideoFrameCallback` where the build has it, rather than on a timer
- *    that copies the same picture again and again.
- *  - The canvas is the width the sidebar shows, so the readback is a quarter of
- *    what a full-size frame would cost and the scaling happens on the GPU.
+ *  - Video frame callbacks drive visible playback. A privileged clock keeps
+ *    the preview moving when background content callbacks are suspended.
+ *  - The chosen frame-rate cap and one outstanding frame limit copying work.
+ *  - The canvas is limited to 320 pixels on its longest edge, so scaling
+ *    reduces the number of pixels read back and sent to the browser.
  *  - What it costs is measured and reported, so a slow picture can be answered
  *    with numbers rather than a guess.
  *
@@ -37,8 +32,9 @@
  */
 
 const MAX_DIMENSION = 320; // the long edge of a copied frame: the panel's own width
-const FRAME_MS = 16; // a copied preview never tries for more than sixty a second
+const DEFAULT_FPS = 30; // sidebar previews favor lower readback and IPC cost
 const RATE_MS = 2000; // how often the cost of all this is reported
+const { setTimeout, clearTimeout } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 
 export class PipMirrorChild extends JSWindowActorChild {
   #video = null;
@@ -52,12 +48,21 @@ export class PipMirrorChild extends JSWindowActorChild {
   #copied = 0; // frames copied since the last report
   #cost = 0; // ms spent copying since the last report
   #reported = 0; // when the last report was sent
+  #frameMS = 1000 / DEFAULT_FPS;
+  #awaitingFrame = false;
+  #session = 0;
   #frameCallback = 0; // the video's own frame callback, where the build has it
 
   receiveMessage(message) {
     switch (message.name) {
       case "PipMirror:Start":
-        this.#start();
+        this.#start(message.data ?? {});
+        break;
+      case "PipMirror:FrameAck":
+        if (message.data?.session === this.#session) this.#awaitingFrame = false;
+        break;
+      case "PipMirror:Configure":
+        this.#configure(message.data ?? {});
         break;
       case "PipMirror:Stop":
         this.#stop();
@@ -90,10 +95,16 @@ export class PipMirrorChild extends JSWindowActorChild {
     return best;
   }
 
-  #start() {
+  #configure({ fps = DEFAULT_FPS } = {}) {
+    this.#frameMS = 1000 / ([15, 30, 60].includes(fps) ? fps : DEFAULT_FPS);
+  }
+
+  #start(settings = {}) {
+    this.#configure(settings);
     if (this.#running) {
       return;
     }
+    this.#session++;
     const video = this.#pick();
     if (!video) {
       this.sendAsyncMessage("PipMirror:Unavailable", { reason: "no video is playing" });
@@ -118,7 +129,11 @@ export class PipMirrorChild extends JSWindowActorChild {
     // A picture straight away: a paused video has one, and a video that is
     // about to move should not show an empty panel while it waits.
     this.#lastStill = video.paused ? video.currentTime : -1;
+    this.#lastSent = Date.now();
     this.#copy(video);
+    if (!this.#running) {
+      return;
+    }
     this.#trigger = this.#watchFrames(video) ? "frames" : "timer";
     this.#reported = Date.now();
     this.#announce(video);
@@ -133,10 +148,10 @@ export class PipMirrorChild extends JSWindowActorChild {
    * something new, which is both cheaper and truer to the video's own rate.
    */
   #watchFrames(video) {
-    const win = this.contentWindow;
     if (typeof video.requestVideoFrameCallback !== "function") {
       return false;
     }
+    let registered = false;
     const step = () => {
       if (!this.#running || this.#video !== video) {
         return;
@@ -149,21 +164,25 @@ export class PipMirrorChild extends JSWindowActorChild {
           this.#maybeCopy(video);
           step();
         });
+        registered = true;
       } catch (err) {
-        // The video went away with the callback.
+        // Some builds expose the API but refuse registration. Keep copying
+        // through the animation loop instead of freezing the preview.
+        this.#trigger = "timer";
       }
     };
     step();
-    return true;
+    return registered;
   }
 
   /** One copy, unless the last one is still warm. */
   #maybeCopy(video) {
     const now = Date.now();
-    if (now - this.#lastSent < FRAME_MS) {
+    if (now - this.#lastSent < this.#frameMS) {
       return;
     }
-    this.#lastSent = now;
+    const intervals = Math.floor((now - this.#lastSent) / this.#frameMS + 1e-7);
+    this.#lastSent += intervals * this.#frameMS;
     this.#copy(video);
   }
 
@@ -184,7 +203,7 @@ export class PipMirrorChild extends JSWindowActorChild {
       ms: copied ? Math.round((cost / copied) * 10) / 10 : 0,
       width: this.#canvas?.width ?? 0,
       height: this.#canvas?.height ?? 0,
-      trigger: this.#trigger,
+      trigger: this.document.hidden ? "background timer" : this.#trigger,
       paused: !!this.#video?.paused,
     });
   }
@@ -192,6 +211,11 @@ export class PipMirrorChild extends JSWindowActorChild {
   #stop() {
     const wasRunning = this.#running;
     this.#running = false;
+    this.#awaitingFrame = false;
+    if (this.#frame) {
+      clearTimeout(this.#frame);
+      this.#frame = 0;
+    }
     if (this.#frameCallback) {
       try {
         this.#video?.cancelVideoFrameCallback?.(this.#frameCallback);
@@ -218,7 +242,11 @@ export class PipMirrorChild extends JSWindowActorChild {
     this.#cost = 0;
     this.#reported = 0;
     if (wasRunning) {
-      this.sendAsyncMessage("PipMirror:Stopped", {});
+      try {
+        this.sendAsyncMessage("PipMirror:Stopped", {});
+      } catch (err) {
+        // Unregistering the actor can close its channel before didDestroy.
+      }
     }
   }
 
@@ -226,8 +254,14 @@ export class PipMirrorChild extends JSWindowActorChild {
     if (!this.#running) {
       return;
     }
-    this.#frame = this.contentWindow.requestAnimationFrame(this.#loop);
+    // Content animation callbacks stop when the video's tab is hidden. A
+    // privileged timer keeps the background preview moving at its chosen cap.
+    this.#frame = setTimeout(this.#loop, this.#frameMS);
     const video = this.#video;
+    if (video?.isConnected === false || video?.ended) {
+      this.#stop();
+      return;
+    }
     if (!video || video.readyState < 2 || !video.videoWidth) {
       return;
     }
@@ -238,21 +272,21 @@ export class PipMirrorChild extends JSWindowActorChild {
         this.#report();
         return;
       }
-      this.#lastStill = video.currentTime;
       this.#lastSent = Date.now();
       this.#copy(video);
       return;
     }
-    // Playing: the video's own frame callback does the copying. A build without
-    // it copies here instead, at a sane rate.
-    if (this.#trigger === "timer") {
+    // Visible playback uses video callbacks. Hidden tabs and builds without
+    // that API use this clock, subject to the same cap and acknowledgement.
+    if (this.#trigger === "timer" || this.document.hidden) {
       this.#maybeCopy(video);
     }
     this.#report();
   };
 
   #copy(video) {
-    const started = Date.now();
+    if (this.#awaitingFrame) return;
+    const started = this.contentWindow.performance?.now() ?? Date.now();
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     const scale = Math.min(1, MAX_DIMENSION / Math.max(vw, vh));
@@ -277,12 +311,14 @@ export class PipMirrorChild extends JSWindowActorChild {
       const pixels = this.#ctx.getImageData(0, 0, width, height);
       this.#lastStill = video.paused ? video.currentTime : -1;
       this.#copied++;
-      this.#cost += Date.now() - started;
-      // An ImageBitmap cannot cross an actor boundary, so the pixels travel as
-      // a transferred buffer.
+      this.#cost += (this.contentWindow.performance?.now() ?? Date.now()) - started;
+      // Pixels cross the actor boundary as a serialized buffer. Gecko copies
+      // ArrayBuffers between processes even when listed as transferables.
+      this.#awaitingFrame = true;
       this.sendAsyncMessage(
         "PipMirror:Frame",
         {
+          session: this.#session,
           buf: pixels.data.buffer,
           width,
           height,

@@ -7,7 +7,6 @@
 // so the browser-window half can drive it. The keyboard chord lives in the
 // browser half, which installs it on every Zen window including this one.
 //
-// The screen-edge geometry (sliver width, tuck/return maths) is adapted from
 // The idea of tucking a player into a screen edge came from Zia (z1n-k, MIT).
 // Nothing in this file is taken from it: the geometry, the strip, the button and
 // the direction map are written here, and this mod needs no other mod to work.
@@ -18,6 +17,10 @@
   if (window.__pipTuckAway) {
     return;
   }
+
+  let destroyed = false;
+  const resizeHooks = [];
+  const log = (message, err) => console.error(`[PiP Tuck Away] ${message}`, err ?? "");
 
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
   const PREF_FROST = "pip-tuck-away.frosted";
@@ -106,7 +109,7 @@
 
   /** "free" when the whole window is on screen, "tucked" when it is at an edge. */
   let state = "free";
-  /** Which edge: "left", "right" or "bottom". */
+  /** Which screen edge the player is tucked into. */
   let spot = null;
   /** Where the window was before it was first tucked. */
   let home = null;
@@ -139,19 +142,6 @@
       return fallback;
     }
   };
-
-  const prefString = (name, fallback) => {
-    try {
-      if (Services.prefs.getPrefType(name) === 0) {
-        return fallback;
-      }
-      return Services.prefs.getStringPref(name, fallback);
-    } catch (err) {
-      return fallback;
-    }
-  };
-
-  const log = (message, err) => console.error(`[PiP Tuck Away] ${message}`, err ?? "");
 
   // ---------- geometry
 
@@ -1279,7 +1269,8 @@
    * and a player that is already tucked moves to the width it was given.
    */
   const applyWidth = () => {
-    const width = WIDTHS[stringPref(PREF_WIDTH, "normal")] ?? WIDTHS.normal;
+    const choice = stringPref(PREF_WIDTH, "normal");
+    const width = Object.hasOwn(WIDTHS, choice) ? WIDTHS[choice] : WIDTHS.normal;
     const changed = width !== sliver;
     sliver = width;
     try {
@@ -1507,8 +1498,6 @@
     const value = directionPref();
     return value === "smart" ? nearestSide() : value;
   };
-
-  const ensureOverlayStyle = () => loadSheet();
 
   const pickerElement = () => document.getElementById(PICKER_ID);
 
@@ -1856,7 +1845,7 @@
     if (!controls) {
       return;
     }
-    ensureOverlayStyle();
+    loadSheet();
     reflectButton();
     let overlay = document.getElementById(OVERLAY_ID);
     let picker = pickerElement();
@@ -1990,8 +1979,6 @@
   const BADGE_ID = "pip-tuck-away-badge";
   const ARM_ID = "pip-tuck-away-arm";
 
-  const ensureTuckLook = () => loadSheet();
-
   const buildBadge = () => {
     const badge = document.createElementNS(XHTML_NS, "div");
     badge.id = BADGE_ID;
@@ -2023,7 +2010,7 @@
   };
 
   const ensureBadge = () => {
-    ensureTuckLook();
+    loadSheet();
     const parent = document.body ?? document.documentElement;
     try {
       if (!document.getElementById(BADGE_ID)) {
@@ -2065,8 +2052,8 @@
 
   /** The size the setting asks for, or null when the platform remembers it. */
   const wantedSize = () => {
-    const choice = prefString(PREF_SIZE, REMEMBER);
-    const width = SIZES[choice];
+    const choice = stringPref(PREF_SIZE, REMEMBER);
+    const width = Object.hasOwn(SIZES, choice) ? SIZES[choice] : null;
     if (!width) {
       return null;
     }
@@ -2106,8 +2093,8 @@
 
   /** The place the setting asks for, or null when the platform remembers it. */
   const wantedPlace = () => {
-    const choice = prefString(PREF_PLACE, REMEMBER);
-    const make = PLACES[choice];
+    const choice = stringPref(PREF_PLACE, REMEMBER);
+    const make = Object.hasOwn(PLACES, choice) ? PLACES[choice] : null;
     if (!make) {
       return null;
     }
@@ -2152,7 +2139,7 @@
     }
     const width = Math.round(rect.width);
     const height = Math.round(rect.height);
-    if (!width || !height) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
       return false;
     }
     const x0 = window.screenX;
@@ -2178,14 +2165,16 @@
       if (!owner || typeof owner[name] !== "function" || owner[name].__pipTuckAway) {
         return;
       }
-      const original = owner[name].bind(owner);
-      const wrapped = (rect) => {
-        if (keepPlaceOnVideoResize(rect)) {
+      const original = owner[name];
+      const wrapped = function (...args) {
+        const [rect] = args;
+        if (!destroyed && keepPlaceOnVideoResize(rect)) {
           return;
         }
-        original(rect);
+        return original.apply(this, args);
       };
       wrapped.__pipTuckAway = true;
+      resizeHooks.push({ owner, name, original, wrapped });
       owner[name] = wrapped;
     };
     take(window, "resizeToVideo");
@@ -2230,6 +2219,13 @@
   }
 
   const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+    window.removeEventListener("unload", onUnload);
+    for (const { owner, name, original, wrapped } of resizeHooks) {
+      if (owner[name] === wrapped) owner[name] = original;
+    }
+    resizeHooks.length = 0;
     handBackZiaTuck();
     stopPeek();
     glideId++;
@@ -2264,12 +2260,18 @@
       log("could not remove the preference observer", err);
     }
     if (state === "tucked") {
-      untuck();
+      const [x, y] = homePos();
+      state = "free";
+      spot = null;
+      moveWindow(x, y);
     }
+    animating = false;
+    root.removeAttribute(CONTROLS_ATTR);
+    root.removeAttribute(FROST_ATTR);
     root.removeAttribute("pip-tucked");
     root.removeAttribute("pip-peeking");
     try {
-        if (controlsTimer) {
+      if (controlsTimer) {
         clearTimeout(controlsTimer);
         controlsTimer = null;
       }
@@ -2319,17 +2321,14 @@
    * Last chance to note where the player belongs: while tucked that is the
    * place it came from, because the window itself is mostly off screen.
    */
-  window.addEventListener(
-    "unload",
-    () => {
-      try {
-        syncHome();
-        persistHome();
-      } catch (err) {
-        // A window on its way out needs nothing.
-      }
-      destroy();
-    },
-    { once: true }
-  );
+  const onUnload = () => {
+    try {
+      syncHome();
+      persistHome();
+    } catch (err) {
+      // A window on its way out needs nothing.
+    }
+    destroy();
+  };
+  window.addEventListener("unload", onUnload, { once: true });
 })();

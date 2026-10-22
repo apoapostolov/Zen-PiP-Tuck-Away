@@ -55,8 +55,13 @@ a floating player.
 | Return to Zen | The automatically opened player closes and the preview returns, unless the video's tab is selected. |
 | Close the video's tab | The preview closes. |
 
-The preview runs at a lower frame rate than the original video and offers
-play/pause and pop-out controls. Protected video, or video that cannot be shown
+**Sidebar preview frame rate** defaults to 30 fps. Choose 15 fps for lower CPU
+and messaging use, or 60 fps for a higher cap. Actual rates depend on the video
+and machine. This setting applies immediately to an open preview. Only one
+copied frame waits for the browser at a time, so a slow preview cannot build up
+a queue of pixel buffers.
+
+The preview offers play/pause and pop-out controls. Protected video, or video that cannot be shown
 in the preview, opens in the regular picture-in-picture player instead. Turn
 this option off to use a floating player while browsing other tabs.
 
@@ -71,3 +76,10 @@ Zia is optional. When it is installed, this mod replaces its tuck button,
 switches off Zia's tucking preference at startup, and removes Zia's minimize
 button from the player. If you re-enable Zia's tucking, hover peeking temporarily
 suspends it until the peek ends.
+
+## Diagnostics
+
+**Write diagnostic logs** is off by default. Enable it before reproducing a
+problem and disable it afterward. Log writes are ordered across browser
+windows, and the media-card visibility poll runs only while logging is enabled.
+The log is `chrome/sine-mods/pip-tuck-away/trace.log` inside your Zen profile.
