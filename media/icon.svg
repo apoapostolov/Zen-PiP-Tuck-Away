@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <title>PiP player tucked into a screen edge</title>
+  <defs>
+    <linearGradient id="screen" x1="34" y1="54" x2="198" y2="194" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#292B31"/>
+      <stop offset="1" stop-color="#121318"/>
+    </linearGradient>
+    <linearGradient id="video" x1="178" y1="100" x2="244" y2="156" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5C879"/>
+      <stop offset="1" stop-color="#D98B42"/>
+    </linearGradient>
+    <clipPath id="visible"><path d="M34 70a16 16 0 0 1 16-16h132a16 16 0 0 1 16 16v108a16 16 0 0 1-16 16H50a16 16 0 0 1-16-16Z"/></clipPath>
+  </defs>
+  <rect x="10" y="10" width="236" height="236" rx="52" fill="#17181D"/>
+  <rect x="34" y="54" width="164" height="140" rx="16" fill="url(#screen)" stroke="#65666F" stroke-width="3"/>
+  <path d="M35 82h161" stroke="#45464F" stroke-width="2"/>
+  <circle cx="49" cy="68" r="3" fill="#A3A1A7"/>
+  <circle cx="61" cy="68" r="3" fill="#787981"/>
+  <path d="M58 108h66M58 121h48M58 160h74" stroke="#464750" stroke-width="6" stroke-linecap="round"/>
+  <g opacity=".25">
+    <rect x="180" y="100" width="64" height="56" rx="10" fill="url(#video)"/>
+    <path d="m205 116 17 12-17 12Z" fill="#FFFFFF"/>
+  </g>
+  <g clip-path="url(#visible)">
+    <rect x="180" y="100" width="64" height="56" rx="10" fill="url(#video)"/>
+    <path d="m205 116 17 12-17 12Z" fill="#FFFFFF"/>
+  </g>
+  <path d="M143 139h24m-8-8 8 8-8 8" stroke="#F5C879" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
