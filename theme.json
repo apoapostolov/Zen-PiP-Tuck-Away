@@ -7,7 +7,9 @@
   "license": "MIT",
   "homepage": "https://github.com/apoapostolov/Zen-PiP-Tuck-Away",
   "readme": "https://raw.githubusercontent.com/apoapostolov/Zen-PiP-Tuck-Away/main/README.md",
+  "image": "https://raw.githubusercontent.com/apoapostolov/Zen-PiP-Tuck-Away/main/media/icon.png",
   "createdAt": "2026-10-21",
+  "updatedAt": "2026-10-27",
   "tags": [
     "picture-in-picture",
     "pip",
