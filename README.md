@@ -45,9 +45,10 @@ controls and removes its minimize button.
 ## A few extras
 
 - Show the video in Zen's sidebar while browsing other tabs, with play/pause
-  and a pop-out button. **Integrate in Sidebar Media Controls** is experimental
-  and on by default. **Sidebar preview frame rate** offers 15, 30, or 60 fps,
-  with 30 as the default. Protected video uses the floating player.
+  and a pop-out button. Click the preview to play or pause, double-click it to
+  jump to the video's own tab. **Integrate in Sidebar Media Controls** is
+  experimental and on by default. **Sidebar preview frame rate** offers 15, 30,
+  or 60 fps, with 30 as the default. Protected video uses the floating player.
 
   ![Video preview above Zen's sidebar media controls](media/sidebar-video-preview.png)
 

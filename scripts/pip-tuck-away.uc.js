@@ -625,6 +625,9 @@
   const PLAY_ICON = "M4 2l12 8-12 8z";
   const PAUSE_ICON = "M4 2h4v14H4zM10 2h4v14h-4z";
   const PIP_ICON = "M2 3h14v10H2zM8 8h7v5H8z";
+  // The play/pause waits this long so a double click does not toggle twice on
+  // its way to switching tabs.
+  const DOUBLE_CLICK_MS = 260;
 
   let mirrorReady = false; // the actor registered: the mirror can be used at all
   let mirrorActor = null; // the tab whose picture is on screen
@@ -635,6 +638,7 @@
   let mirrorPainted = false; // this tab has sent a picture
   let boxHasPicture = false; // the canvas holds one, whoever sent it
   let mirrorTimer = 0; // gives up when the tab on screen sends nothing
+  let mirrorClick = 0; // a play/pause waiting out the double-click window
   let panelWatch = 0; // the next scheduled layout measurement
   let panelResize = null;
   let panelMutations = null;
@@ -775,6 +779,40 @@
 
   const mirrorBox = () => window.document?.getElementById?.(MIRROR_ID) ?? null;
 
+  /**
+   * Double click on the picture: bring the tab the video is in to the front.
+   * The panel is a view of another tab, so this is the one gesture that ends the
+   * look and returns to what the widget was showing.
+   */
+  const revealMirrorTab = () => {
+    const tabbrowser = window.gBrowser;
+    const browser = mirrorBrowser ?? pendingBrowser;
+    if (!tabbrowser || !browser) {
+      return false;
+    }
+    let tab = null;
+    try {
+      tab = tabbrowser.getTabForBrowser?.(browser) ?? null;
+    } catch (err) {
+      tab = null;
+    }
+    if (!tab) {
+      tab = [...(tabbrowser.tabs ?? [])].find((entry) => entry?.linkedBrowser === browser) ?? null;
+    }
+    if (!tab) {
+      log("the tab the widget is showing could not be found");
+      return false;
+    }
+    tabbrowser.selectedTab = tab;
+    try {
+      window.focus();
+    } catch (err) {
+      // A window that refuses focus still has its tab selected.
+    }
+    trace("mirror: double click went to the video's tab");
+    return true;
+  };
+
   const buildMirrorBox = () => {
     const box = window.document.createElementNS(XHTML_NS, "div");
     box.id = MIRROR_ID;
@@ -794,7 +832,27 @@
     const pip = mirrorButton(PIP_ICON, "Open in a player window", () => openInPip());
     controls.append(play, pip);
     box.append(controls);
-    canvas.addEventListener("click", () => controlMirror("toggle"));
+    canvas.addEventListener("click", (event) => {
+      if ((event?.detail ?? 1) > 1) {
+        // The second press of a double click: the tab switch owns this gesture.
+        return;
+      }
+      if (mirrorClick) {
+        cancelTimer(mirrorClick);
+      }
+      mirrorClick = schedule(() => {
+        mirrorClick = 0;
+        controlMirror("toggle");
+      }, DOUBLE_CLICK_MS);
+    });
+    canvas.addEventListener("dblclick", (event) => {
+      event?.preventDefault?.();
+      if (mirrorClick) {
+        cancelTimer(mirrorClick);
+        mirrorClick = 0;
+      }
+      revealMirrorTab();
+    });
     return box;
   };
 
@@ -1208,6 +1266,10 @@
     // A tab asked while this one was on screen is done with too: the panel it
     // was waiting to take over no longer exists.
     abandonPending("the panel was let go");
+    if (mirrorClick) {
+      cancelTimer(mirrorClick);
+      mirrorClick = 0;
+    }
     const had = !!mirrorActor;
     const actor = mirrorActor;
     mirrorActor = null;

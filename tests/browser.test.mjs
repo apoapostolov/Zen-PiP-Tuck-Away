@@ -350,6 +350,15 @@ function mk(prefsIn = {}, opts = {}) {
   mediaBar.contains = (target) => target === mediaBar || target === dockCardEl || mediaBar.children.some((node) => node.contains(target));
   mediaBar.addEventListener = (type, fn) => (mediaBar.listeners ??= {})[type] = fn;
   mediaBar.removeEventListener = (type) => { delete (mediaBar.listeners ??= {})[type]; };
+  const tabByBrowser = new Map();
+  const tabFor = (browser) => {
+    let tab = tabByBrowser.get(browser);
+    if (!tab) {
+      tab = { linkedBrowser: browser };
+      tabByBrowser.set(browser, tab);
+    }
+    return tab;
+  };
   const window = {
     ResizeObserver: class {
       constructor(callback) { this.callback = callback; this.active = true; resizeObservers.push(this); }
@@ -365,7 +374,13 @@ function mk(prefsIn = {}, opts = {}) {
     innerWidth: 1920,
     innerHeight: 1080,
     location: { href: "chrome://browser/content/browser.xhtml" },
-    gBrowser: { selectedBrowser: selected, tabContainer: tabStrip },
+    gBrowser: {
+      selectedBrowser: selected,
+      selectedTab: null,
+      tabContainer: tabStrip,
+      tabs: [],
+      getTabForBrowser: (browser) => (browser ? tabFor(browser) : null),
+    },
     requestAnimationFrame: (fn) => frames.push(fn),
     cancelAnimationFrame: (id) => {
       frames[id - 1] = null;
@@ -391,6 +406,13 @@ function mk(prefsIn = {}, opts = {}) {
     },
   };
 
+  window.gBrowser.getTabForBrowser = (browser) => {
+    const tab = tabFor(browser);
+    if (!window.gBrowser.tabs.includes(tab)) {
+      window.gBrowser.tabs.push(tab);
+    }
+    return tab;
+  };
   latestWindow = window;
   if (opts.app) windows.push(window);
   const sandbox = {
@@ -600,6 +622,8 @@ function mk(prefsIn = {}, opts = {}) {
     launcherMessages,
     selected,
     tabStrip,
+    tabFor: (browser) => tabByBrowser.get(browser) ?? null,
+    gBrowser: () => window.gBrowser,
     select(browser) {
       window.gBrowser.selectedBrowser = browser;
       browser.getTabBrowser = () => ({
@@ -1158,7 +1182,56 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("with the toolbar's own height animation switched off", t.barStyle.props.transition, "none");
   check("with nothing added to the card", t.dockSpacers.length, 0);
   check("and the play button says pause", t.mirror().querySelector(".pip-tuck-away-mirror-button path").getAttribute("d").startsWith("M4 2h4"), true);
-  check("a click on the picture is a play/pause", (t.mirror().firstElementChild.fire("click", {}) ?? true) && mirrorActor.sent.some((m) => m.name === "PipMirror:Control" && m.data.action === "toggle"), true);
+  t.mirror().firstElementChild.fire("click", {});
+  check("a click waits out the double-click window", mirrorActor.sent.some((m) => m.name === "PipMirror:Control"), false);
+  t.runTimers();
+  check("a click on the picture is a play/pause", mirrorActor.sent.some((m) => m.name === "PipMirror:Control" && m.data.action === "toggle"), true);
+}
+
+// 30g2. a double click on the picture goes to the video's tab
+{
+  const t = mk({ "pip-tuck-away.in-widget": true, "pip-tuck-away.trace": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 31 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(31, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(31, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  mirrorActor.sent.length = 0;
+  t.mirror().firstElementChild.fire("click", {});
+  t.mirror().firstElementChild.fire("dblclick", {});
+  t.runTimers();
+  check("the double click selects the video's tab", t.gBrowser().selectedTab === t.gBrowser().getTabForBrowser(wgp.browser), true);
+  check("and it is the tab the widget was showing", t.gBrowser().selectedTab.linkedBrowser === wgp.browser, true);
+  check("a double click does not also toggle the video", mirrorActor.sent.filter((m) => m.name === "PipMirror:Control").length, 0);
+}
+
+// 30g3. the second press of a double click is not a play/pause
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 32 });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(32, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(32, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  mirrorActor.sent.length = 0;
+  t.mirror().firstElementChild.fire("click", { detail: 2 });
+  t.runTimers();
+  check("a second press toggles nothing", mirrorActor.sent.length, 0);
+}
+
+// 30g4. a double click before the panel settles goes to the tab it is waiting for
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const A = wgpFor(false, { selected: true, bcId: 33 });
+  await t.pipApi().handlePictureInPictureRequest(A, {});
+  t.controller().mirrorStarted(33, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(33, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  // the tab changes: B is asked, and answers only afterwards
+  const B = wgpFor(false, { selected: false, bcId: 34 });
+  t.select(B.browser);
+  t.controller().mirrorRequested?.(34);
+  t.mirror()?.firstElementChild?.fire?.("dblclick", {});
+  t.runTimers();
+  const got = t.gBrowser().selectedTab?.linkedBrowser;
+  check("a double click during the hand-over goes to a tab that has the video", got === B.browser || got === A.browser, true);
 }
 
 // 30h. the panel is measured with the widget, not once

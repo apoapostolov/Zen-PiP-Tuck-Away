@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Double-click the video in the sidebar media controls to go to the tab it plays
+  in. A single click still plays or pauses, and now waits a moment to see whether
+  a second click is coming.
+
 ## 1.0.1 (2026-10-22)
 
 - Default sidebar previews to 30 fps, with 15 and 60 fps choices. Limit copying

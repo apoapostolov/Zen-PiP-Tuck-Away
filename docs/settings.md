@@ -42,8 +42,8 @@ Top Middle and Bottom Middle tuck into the top and bottom edges.
 
 **Integrate in Sidebar Media Controls (slow framerate, experimental)** is on by
 default. It shows the video from the tab you leave in Zen's sidebar media
-controls. Click the preview to play or pause, or use its pop-out button to open
-a floating player.
+controls. Click the preview to play or pause, double-click it to go to the video's
+own tab, or use its pop-out button to open a floating player.
 
 | What you do | What happens |
 | --- | --- |
