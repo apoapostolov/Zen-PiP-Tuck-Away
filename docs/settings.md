@@ -72,6 +72,17 @@ request a floating player when you switch to another application with the
 video's own tab selected. Returning to that tab closes the automatically opened
 player. Players you open manually stay open.
 
+## Videos to leave alone
+
+**Ignored domains** takes a comma separated list of domains, for example
+`youtube.com, twitch.tv`. A video from one of them is not shown in the sidebar and
+no player window opens for it. Subdomains are covered, so `youtube.com` also
+matches `m.youtube.com`, and a pasted address works as well as a bare domain.
+Spaces, an empty entry, a `www.` prefix and a port make no difference.
+
+The list is live: adding a domain takes a video that is already in the sidebar off
+the screen straight away. Leave the field empty to ignore nothing.
+
 ## Zia compatibility
 
 Zia is optional. When it is installed, this mod replaces its tuck button,

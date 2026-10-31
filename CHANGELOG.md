@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- A new **Ignored domains** field takes a comma separated list of domains. Videos
+  from those domains, subdomains included, are left out of the sidebar preview and
+  no player opens for them. The list applies as soon as it is changed.
+
 ## 1.0.2 (2026-10-31)
 
 - Double-click the video in the sidebar media controls to go to the tab it plays

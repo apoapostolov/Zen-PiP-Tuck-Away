@@ -40,6 +40,7 @@
   const AUTO_TUCK_PREF = "pip-tuck-away.auto-tuck";
   const INLINE_PREF = "pip-tuck-away.inline-in-zen";
   const WIDGET_PREF = "pip-tuck-away.in-widget";
+  const IGNORE_PREF = "pip-tuck-away.ignore-hosts";
   const FPS_PREF = "pip-tuck-away.preview-fps";
   const PIP_MODULE = "moz-src:///toolkit/components/pictureinpicture/PictureInPicture.sys.mjs";
 
@@ -1130,7 +1131,7 @@
    * switching between tabs that have nothing to show cannot empty the widget.
    */
   const armMirror = (browser, held = null) => {
-    if (!mirrorReady || !browser || blankTab(browser)) {
+    if (!mirrorReady || !browser || skipTab(browser)) {
       return false;
     }
     if (!pref(WIDGET_PREF, true)) {
@@ -1431,6 +1432,55 @@
       return "";
     }
   };
+  /**
+   * One entry of the ignored list, reduced to a bare host. A domain is typed by
+   * hand, so a pasted address, a port, a path and a www. prefix all mean the same
+   * host.
+   */
+  const bareHost = (value) => {
+    let host = String(value ?? "").trim().toLowerCase();
+    if (!host) {
+      return "";
+    }
+    host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//, "");
+    host = host.replace(/^[^@/]*@/, "");
+    host = host.split("/")[0].split("?")[0].split("#")[0];
+    if (!host.startsWith("[")) {
+      host = host.split(":")[0];
+    }
+    return host.replace(/^www\./, "");
+  };
+
+  const ignoredDomains = () => {
+    try {
+      const raw = Services.prefs.getStringPref(IGNORE_PREF, "");
+      return raw.split(",").map(bareHost).filter(Boolean);
+    } catch (err) {
+      return [];
+    }
+  };
+
+  const hostOf = (browser) => {
+    try {
+      const uri = browser?.currentURI;
+      if (uri?.host) {
+        return bareHost(uri.host);
+      }
+      return bareHost(uri?.spec ?? "");
+    } catch (err) {
+      return "";
+    }
+  };
+
+  /** A domain the user typed into the settings, or anything under it. */
+  const ignoredTab = (browser) => {
+    const host = hostOf(browser);
+    if (!host) {
+      return false;
+    }
+    return ignoredDomains().some((entry) => host === entry || host.endsWith(`.${entry}`));
+  };
+
   const blankTab = (browser) => {
     if (!browser) {
       return false;
@@ -1442,6 +1492,9 @@
     return title !== "" && BLANK_TITLES.includes(title);
   };
 
+  /** A tab this mod does not touch: nothing to come back to, or an ignored domain. */
+  const skipTab = (browser) => blankTab(browser) || ignoredTab(browser);
+
   const shouldMirror = (browser) => {
     if (!mirrorReady || !browser) {
       return false;
@@ -1449,7 +1502,7 @@
     if (!pref(WIDGET_PREF, true)) {
       return false;
     }
-    if (blankTab(browser)) {
+    if (skipTab(browser)) {
       return false;
     }
     if (forcedPip.delete(browser)) {
@@ -1466,11 +1519,11 @@
     shared.handlers.set(window, (wgp, videoData) => {
       const fromTabSwitch = requestedByTabSwitch(wgp);
       const browser = browserOf(wgp);
-      if (blankTab(browser)) {
-        // Claimed and dropped: no player window and nothing in the widget. The
-        // page has no address to come back to, so a player for it would be a
-        // window with nothing behind it.
-        trace("request: a tab with no page, no player");
+      if (skipTab(browser)) {
+        // Claimed and dropped: no player window and nothing in the widget. A tab
+        // with no page has nothing to come back to, and a tab on a domain the
+        // user named is not this mod's business at all.
+        trace(`request: skipped (${blankTab(browser) ? "no page" : "ignored domain"})`);
         return true;
       }
       if (fromTabSwitch && browser) autoPipped.add(browser);
@@ -1537,7 +1590,7 @@
     if (Date.now() < requestCooldownUntil) {
       return false;
     }
-    if (!browser || browser.audioMuted || blankTab(browser)) {
+    if (!browser || browser.audioMuted || skipTab(browser)) {
       return false;
     }
     requestCooldownUntil = Date.now() + REQUEST_COOLDOWN;
@@ -1868,6 +1921,16 @@
       cardWatchTimer = null;
       startCardWatch();
     }
+    if (name === IGNORE_PREF) {
+      // The list is live: a domain added to it takes the video off the screen
+      // rather than waiting for the next tab change.
+      if (mirrorBrowser && ignoredTab(mirrorBrowser)) {
+        stopMirror("its domain was added to the ignored list");
+      }
+      if (pendingBrowser && ignoredTab(pendingBrowser)) {
+        abandonPending("its domain is ignored", false);
+      }
+    }
     if (name === FPS_PREF) {
       for (const actor of [mirrorActor, pendingActor]) {
         try {
@@ -1884,6 +1947,7 @@
   installPipHook();
   startCardWatch();
   Services.prefs.addObserver(WIDGET_PREF, onBrowserPref);
+  Services.prefs.addObserver(IGNORE_PREF, onBrowserPref);
   Services.prefs.addObserver(TRACE_PREF, onBrowserPref);
   Services.prefs.addObserver(FPS_PREF, onBrowserPref);
 
@@ -1914,6 +1978,7 @@
     loadingWindows.clear();
     teardownMirror();
     Services.prefs.removeObserver(WIDGET_PREF, onBrowserPref);
+    Services.prefs.removeObserver(IGNORE_PREF, onBrowserPref);
     Services.prefs.removeObserver(TRACE_PREF, onBrowserPref);
     Services.prefs.removeObserver(FPS_PREF, onBrowserPref);
     releasePanelRoom();

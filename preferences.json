@@ -203,6 +203,17 @@
   },
   {
     "type": "separator",
+    "label": "**Videos to leave alone**"
+  },
+  {
+    "property": "pip-tuck-away.ignore-hosts",
+    "label": "Ignored domains",
+    "type": "string",
+    "defaultValue": "",
+    "placeholder": "example.com, another.site"
+  },
+  {
+    "type": "separator",
     "label": "**Diagnostics**"
   },
   {

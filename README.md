@@ -55,6 +55,9 @@ controls and removes its minimize button.
 - A tab that is still **New Tab**, or any `about:newtab`, `about:home` or
   `about:blank` page, is left out of both: nothing from it appears in the
   sidebar, and no player opens for it.
+- **Ignored domains** takes a comma separated list, and videos from those domains
+  are left out of both as well, subdomains included. The list applies the moment
+  you change it.
 
 - Enable **Pop the player out when leaving Zen** to get a floating player when
   you switch apps from the video's tab. It's off by default.

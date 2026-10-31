@@ -1281,6 +1281,60 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("and no player was opened", t.pipCalls.length, 0);
 }
 
+// 30l. a domain on the ignored list gets no player and no panel
+{
+  const t = mk({ "pip-tuck-away.in-widget": true, "pip-tuck-away.ignore-hosts": "youtube.com" }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 51, title: "A video", url: "https://www.youtube.com/watch?v=1" });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  check("an ignored domain opens no player", t.pipCalls.length, 0);
+  check("and the widget shows nothing for it", t.mirror()?.firstElementChild?.painted ?? null, null);
+}
+
+// 30m. a subdomain of an ignored domain is ignored too
+{
+  const t = mk({ "pip-tuck-away.in-widget": true, "pip-tuck-away.ignore-hosts": "youtube.com" }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  await t.pipApi().handlePictureInPictureRequest(wgpFor(false, { selected: false, bcId: 52, url: "https://m.youtube.com/watch?v=2" }), {});
+  await tick();
+  check("a subdomain is skipped", t.pipCalls.length, 0);
+}
+
+// 30n. a pasted address, a port and a stray prefix all mean the same host
+{
+  const t = mk({ "pip-tuck-away.in-widget": true, "pip-tuck-away.ignore-hosts": " https://WWW.YouTube.com/watch?v=9 ,, example.org:8080 " }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  await t.pipApi().handlePictureInPictureRequest(wgpFor(false, { selected: false, bcId: 53, url: "https://youtube.com/watch?v=3" }), {});
+  await tick();
+  check("a pasted address matches the plain domain", t.pipCalls.length, 0);
+  const t2 = mk({ "pip-tuck-away.in-widget": true, "pip-tuck-away.ignore-hosts": "example.org:8080" }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  await t2.pipApi().handlePictureInPictureRequest(wgpFor(false, { selected: false, bcId: 54, url: "https://example.org/watch" }), {});
+  await tick();
+  check("a port in the entry does not stop the host matching", t2.pipCalls.length, 0);
+}
+
+// 30o. a domain that is not on the list is untouched
+{
+  const t = mk({ "pip-tuck-away.in-widget": true, "pip-tuck-away.ignore-hosts": "youtube.com" }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 55, url: "https://vimeo.com/123" });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(55, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(55, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  check("another domain is mirrored as usual", t.mirror()?.firstElementChild?.painted?.width, 2);
+  check("and no player was opened for it", t.pipCalls.length, 0);
+}
+
+// 30p. adding a domain to the list takes the video off the screen at once
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 56, url: "https://youtube.com/watch?v=4" });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(56, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(56, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  check("the panel is showing it", t.mirror()?.hasAttribute("waiting"), false);
+  t.setPref("pip-tuck-away.ignore-hosts", "youtube.com");
+  check("the panel goes when its domain is ignored", t.mirror(), null);
+  check("and no player was opened in its place", t.pipCalls.length, 0);
+}
+
 // 30h. the panel is measured with the widget, not once
 {
   const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
@@ -1345,10 +1399,21 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
     "**Tuck away**",
     "**The player**",
     "**Sidebar media controls**",
+    "**Videos to leave alone**",
     "**Diagnostics**",
   ]);
+  check("settings groups are unchanged where they should be", groups.slice(0, 3), [
+    "**Tuck away**",
+    "**The player**",
+    "**Sidebar media controls**",
+  ]);
   check("every setting is a real type the settings page renders", 
-    settings.filter((e) => e.property && !["checkbox", "dropdown"].includes(e.type)), []);
+    settings.filter((e) => e.property && !["checkbox", "dropdown", "string"].includes(e.type)), []);
+  // A text field is the one type that also needs a default, or the page shows
+  // the empty string and the pref is never written.
+  const text = settings.find((e) => e.property === "pip-tuck-away.ignore-hosts");
+  check("the ignored domains field is a text field with an empty default",
+    [text.type, text.defaultValue], ["string", ""]);
   const size = settings.find((e) => e.property === "pip-tuck-away.size");
   const place = settings.find((e) => e.property === "pip-tuck-away.place");
   check("a default size, Remember Last first and by default", [size.options[0], size.defaultValue],
