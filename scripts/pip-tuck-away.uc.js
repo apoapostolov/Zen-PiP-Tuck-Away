@@ -647,6 +647,7 @@
   let panelCard = null;
   const panelTransitions = new Map();
   let lastPanelNote = ""; // what the panel was last placed at, so idle frames write nothing
+  let lastPanelSize = [0, 0]; // the box the panel was last given
   let heldRequest = null; // the request the panel stands in for
   let lastMirrored = null; // the tab it was showing when the browser lost focus
   let lastSelected = null; // the tab that was in front before this one
@@ -907,14 +908,26 @@
       cancelTimer(mirrorTimer);
       mirrorTimer = 0;
     }
-    const width = Math.max(80, Math.round(cardRect.width - PANEL_INSET * 2));
+    // The panel keeps the card's width for a wide video. A tall one is fitted by
+    // height instead: keeping the full width would give a portrait clip every
+    // pixel the sidebar is allowed to lend, which is more room than the picture
+    // needs and reads as an empty black band.
     const limit = Math.round((window.innerHeight || 800) * PANEL_MAX_SHARE);
-    const height = Math.max(45, Math.min(Math.round(width / mirrorAspect), limit));
+    const full = Math.max(80, Math.round(cardRect.width - PANEL_INSET * 2));
+    const natural = Math.round(full / mirrorAspect);
+    const height = Math.max(45, Math.min(natural, limit));
+    const width = height === natural ? full : Math.max(45, Math.round(height * mirrorAspect));
     // The panel's bottom is six pixels above the card's top edge, so the room
     // the widget gives up is the panel, both insets, and whatever the card is
     // carrying beyond the height its collapsed box already counted. The card's
     // height is read as it is, mid-animation included, which is what keeps the
     // two moving together.
+    // A base captured while the widget was expanded (a hover, a mid-animation
+    // frame) would inflate every room written afterwards, so it is corrected the
+    // moment the bar proves to be shorter than it.
+    if (panelBase !== null && Math.round(barRect.height) < panelBase) {
+      panelBase = Math.round(barRect.height) || 0;
+    }
     const base = panelBase ?? (Math.round(barRect.height) || 0);
     const room = height + PANEL_INSET * 2 + Math.max(0, Math.round(cardRect.height) - base);
     const left = Math.round(cardRect.left - barRect.left + PANEL_INSET);
@@ -929,6 +942,10 @@
       return;
     }
     lastPanelNote = note;
+    if (width !== lastPanelSize[0] || height !== lastPanelSize[1]) {
+      lastPanelSize = [width, height];
+      trace(`panel: ${width}x${height}, room ${room}, picture ${mirrorAspect.toFixed(3)}:1`);
+    }
     reservePanelRoom(bar, room);
     box.style.width = `${width}px`;
     box.style.height = `${height}px`;
@@ -1352,6 +1369,16 @@
         return;
       }
       drawMirrorFrame(frame);
+      // The frame is the authority on its own shape. A page that reports its
+      // video size late, or reports a different element's, cannot leave the panel
+      // drawn with the wrong proportions. A degenerate copy says nothing.
+      if (Math.max(frame?.width ?? 0, frame?.height ?? 0) >= 48) {
+        const aspect = frame.width / frame.height;
+        if (Math.abs(aspect - mirrorAspect) > 0.01) {
+          mirrorAspect = aspect;
+          placeMirror();
+        }
+      }
       if (frame) {
         mirrorState = {
           paused: !!frame.paused,

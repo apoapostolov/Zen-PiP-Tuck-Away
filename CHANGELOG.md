@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The video in the sidebar is now fitted to its own shape. A tall clip, like the
+  ones Grok renders, is given a shorter, narrower box instead of the sidebar's
+  whole width and every pixel of height it is allowed to lend, which used to leave
+  a black band around a much smaller picture. The box also follows the picture in
+  hand when a page reports its video size late.
 - A new **Ignored domains** field takes a comma separated list of domains. Videos
   from those domains, subdomains included, are left out of the sidebar preview and
   no player opens for them. The list applies as soon as it is changed.

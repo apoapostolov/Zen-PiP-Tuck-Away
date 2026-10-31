@@ -1335,6 +1335,35 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   check("and no player was opened in its place", t.pipCalls.length, 0);
 }
 
+// 30q. a tall video is fitted by height, not stretched to the card's width
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 61, url: "https://grok.com/imagine" });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(61, { width: 1080, height: 3840, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(61, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  // 0.45 of a 1080 tall window is 486. The card is 300 wide, so 288 of width at
+  // this shape would be 1024 tall, which is room the sidebar does not have.
+  check("a portrait video is capped by height", t.mirror().style.height, "486px");
+  check("and the width gives way instead of the picture", t.mirror().style.width, "137px");
+  check("so the room follows the fitted box", t.barStyle.props["--zen-media-collapsed-height"], "calc(80px + 618px)");
+}
+
+// 30r. the shape of the picture in hand wins over the size the page reported
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 62, url: "https://grok.com/imagine" });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  t.controller().mirrorStarted(62, { width: 1280, height: 720, paused: false }, mirrorActor);
+  t.controller().mirrorFrame(62, { buf: new ArrayBuffer(16), width: 2, height: 2, paused: false });
+  check("a wide picture fills the card's width", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
+  // 320x480 arrives: a portrait clip behind a reported wide element.
+  t.controller().mirrorFrame(62, { buf: new ArrayBuffer(16), width: 320, height: 480, paused: false });
+  check("a portrait picture reshapes the panel", [t.mirror().style.width, t.mirror().style.height], ["288px", "432px"]);
+  t.controller().mirrorFrame(62, { buf: new ArrayBuffer(16), width: 320, height: 180, paused: false });
+  check("and a wide one puts it back", [t.mirror().style.width, t.mirror().style.height], ["288px", "162px"]);
+}
+
 // 30h. the panel is measured with the widget, not once
 {
   const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });

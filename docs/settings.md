@@ -61,7 +61,9 @@ and machine. This setting applies immediately to an open preview. Only one
 copied frame waits for the browser at a time, so a slow preview cannot build up
 a queue of pixel buffers.
 
-The preview offers play/pause and pop-out controls. Protected video, or video that cannot be shown
+The preview offers play/pause and pop-out controls. It takes the video's own shape,
+so a tall clip gets a smaller box rather than a black band around a small picture.
+Protected video, or video that cannot be shown
 in the preview, opens in the regular picture-in-picture player instead. A tab that
 is still called New Tab, or any `about:newtab`, `about:home` or `about:blank` page,
 is skipped in both: nothing from it appears in the sidebar and no player opens for
