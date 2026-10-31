@@ -1,16 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- The video in the sidebar is now fitted to its own shape. A tall clip, like the
-  ones Grok renders, is given a shorter, narrower box instead of the sidebar's
-  whole width and every pixel of height it is allowed to lend, which used to leave
-  a black band around a much smaller picture. The box also follows the picture in
-  hand when a page reports its video size late.
-- A new **Ignored domains** field takes a comma separated list of domains. Videos
-  from those domains, subdomains included, are left out of the sidebar preview and
-  no player opens for them. The list applies as soon as it is changed.
-
 ## 1.0.2 (2026-10-31)
 
 - Double-click the video in the sidebar media controls to go to the tab it plays
@@ -19,6 +8,14 @@
 - Tabs that are still called New Tab are left alone: their video is not shown in
   the sidebar and no player window opens for them. The same goes for an
   `about:newtab`, `about:home` or `about:blank` address.
+- A new **Ignored domains** field takes a comma separated list of domains. Videos
+  from those domains, subdomains included, are left out of the sidebar preview and
+  no player opens for them. The list applies as soon as it is changed.
+- The video in the sidebar is fitted to its own shape. A tall clip, like the ones
+  Grok renders, gets a shorter, narrower box instead of the sidebar's whole width
+  and every pixel of height it is allowed to lend, which used to leave a black band
+  around a much smaller picture. The box follows the picture in hand when a page
+  reports its video size late.
 
 ## 1.0.1 (2026-10-22)
 
