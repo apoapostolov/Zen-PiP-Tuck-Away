@@ -8,8 +8,8 @@ A Sine mod for Zen's picture-in-picture player.
 
 ![Zen Browser](https://img.shields.io/badge/Zen-Browser-f76f53?style=flat-square)
 ![Sine mod](https://img.shields.io/badge/Sine-mod-6e56cf?style=flat-square)
-[![Version: 1.0.1](https://img.shields.io/badge/version-1.0.1-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.1)
-[![Released: 2026-10-22](https://img.shields.io/badge/released-2026--10--22-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.1)
+[![Version: 1.0.2](https://img.shields.io/badge/version-1.0.2-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.2)
+[![Released: 2026-10-31](https://img.shields.io/badge/released-2026--10--31-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.2)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 </div>

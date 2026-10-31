@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.2 (2026-10-31)
 
 - Double-click the video in the sidebar media controls to go to the tab it plays
   in. A single click still plays or pauses, and now waits a moment to see whether
