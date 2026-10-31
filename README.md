@@ -52,6 +52,10 @@ controls and removes its minimize button.
 
   ![Video preview above Zen's sidebar media controls](media/sidebar-video-preview.png)
 
+- A tab that is still **New Tab**, or any `about:newtab`, `about:home` or
+  `about:blank` page, is left out of both: nothing from it appears in the
+  sidebar, and no player opens for it.
+
 - Enable **Pop the player out when leaving Zen** to get a floating player when
   you switch apps from the video's tab. It's off by default.
 - Turn on **Write diagnostic logs** when tracking down a bug. Logging is off

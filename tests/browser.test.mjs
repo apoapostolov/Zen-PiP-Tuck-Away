@@ -337,6 +337,8 @@ function mk(prefsIn = {}, opts = {}) {
   const launcherMessages = [];
   const selected = {
     audioMuted: opts.muted ?? false,
+    contentTitle: opts.title ?? "",
+    currentURI: { spec: opts.url ?? "https://example.com/" },
     browsingContext: {
       currentWindowGlobal: {
         getActor: (name) =>
@@ -905,6 +907,8 @@ const wgpFor = (active, opts = {}) => {
   const browser = {
     ownerGlobal: opts.owner ?? latestWindow,
     docShellIsActive: active,
+    contentTitle: opts.title ?? "",
+    currentURI: { spec: opts.url ?? "https://example.com/" },
     getTabBrowser: () => ({
       selectedBrowser: opts.selected === false ? {} : browser,
       shouldActivateDocShell: () => !!opts.wantsActive,
@@ -948,6 +952,15 @@ const mirrorActor = {
   await tick();
   check("asked the selected tab", t.launcherMessages, ["PictureInPicture:AutoToggle"]);
   check("nothing floated from a stale request", t.pipCalls.length, 0);
+}
+
+// 16f2. leaving Zen on a new tab asks nothing
+{
+  const t = mk({ "pip-tuck-away.inline-in-zen": true, "pip-tuck-away.in-widget": false }, { mediaCard: "shown", title: "New Tab" });
+  t.windows.length = 0;
+  t.emit("deactivate");
+  await tick();
+  check("a new tab is never asked for a player", t.launcherMessages, []);
 }
 
 // 16g. no second ask while a player is open
@@ -1232,6 +1245,40 @@ const BAR_AT_BOTTOM = { left: 0, top: 900, width: 300, height: 80, right: 300, b
   t.runTimers();
   const got = t.gBrowser().selectedTab?.linkedBrowser;
   check("a double click during the hand-over goes to a tab that has the video", got === B.browser || got === A.browser, true);
+}
+
+// 30i. a tab that is still a new tab gets no player and no panel
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 35, title: "New Tab" });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  check("no player was opened for it", t.pipCalls.length, 0);
+  check("and the widget shows nothing", t.mirror()?.firstElementChild?.painted ?? null, null);
+}
+
+// 30j. an about:newtab address is skipped whatever it is called
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const wgp = wgpFor(false, { selected: false, bcId: 36, title: "Some page", url: "about:newtab" });
+  await t.pipApi().handlePictureInPictureRequest(wgp, {});
+  await tick();
+  check("an empty start page opens no player", t.pipCalls.length, 0);
+}
+
+// 30k. leaving a new tab does not put a video in the widget
+{
+  const t = mk({ "pip-tuck-away.in-widget": true }, { mediaCard: "shown", dockCard: true, barRect: BAR_AT_BOTTOM, deferTimers: true });
+  const blankActor = { sent: [], sendAsyncMessage(name, data) { this.sent.push({ name, data }); } };
+  const blank = wgpFor(true, { selected: true, bcId: 37, title: "New Tab", actor: blankActor });
+  t.select(blank.browser);
+  t.tabStrip.fire("TabSelect", {});
+  const other = wgpFor(false, { selected: false, bcId: 38, title: "YouTube" });
+  t.select(other.browser);
+  t.tabStrip.fire("TabSelect", {});
+  await tick();
+  check("the new tab was never asked for a picture", blankActor.sent.length, 0);
+  check("and no player was opened", t.pipCalls.length, 0);
 }
 
 // 30h. the panel is measured with the widget, not once

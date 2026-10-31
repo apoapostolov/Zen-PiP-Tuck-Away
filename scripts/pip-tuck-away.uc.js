@@ -1130,7 +1130,7 @@
    * switching between tabs that have nothing to show cannot empty the widget.
    */
   const armMirror = (browser, held = null) => {
-    if (!mirrorReady || !browser) {
+    if (!mirrorReady || !browser || blankTab(browser)) {
       return false;
     }
     if (!pref(WIDGET_PREF, true)) {
@@ -1409,11 +1409,47 @@
    * browser is in the background, goes to the platform untouched, which is what
    * keeps the browser's own picture-in-picture standard.
    */
+  /**
+   * A tab that is still nothing: Zen's own start page, or a blank one. The start
+   * page can carry a video, and a video from a tab with no page has no address to
+   * come back to, so it is neither shown in the widget nor given a player.
+   */
+  const BLANK_TITLES = ["new tab", "new tab page", "untitled"];
+  const BLANK_URLS = ["about:newtab", "about:home", "about:blank"];
+  const titleOf = (browser) => {
+    try {
+      const title = browser?.contentTitle ?? browser?.contentDocument?.title ?? "";
+      return String(title).trim();
+    } catch (err) {
+      return "";
+    }
+  };
+  const urlOf = (browser) => {
+    try {
+      return String(browser?.currentURI?.spec ?? "").trim();
+    } catch (err) {
+      return "";
+    }
+  };
+  const blankTab = (browser) => {
+    if (!browser) {
+      return false;
+    }
+    if (BLANK_URLS.includes(urlOf(browser))) {
+      return true;
+    }
+    const title = titleOf(browser).toLowerCase();
+    return title !== "" && BLANK_TITLES.includes(title);
+  };
+
   const shouldMirror = (browser) => {
     if (!mirrorReady || !browser) {
       return false;
     }
     if (!pref(WIDGET_PREF, true)) {
+      return false;
+    }
+    if (blankTab(browser)) {
       return false;
     }
     if (forcedPip.delete(browser)) {
@@ -1430,6 +1466,13 @@
     shared.handlers.set(window, (wgp, videoData) => {
       const fromTabSwitch = requestedByTabSwitch(wgp);
       const browser = browserOf(wgp);
+      if (blankTab(browser)) {
+        // Claimed and dropped: no player window and nothing in the widget. The
+        // page has no address to come back to, so a player for it would be a
+        // window with nothing behind it.
+        trace("request: a tab with no page, no player");
+        return true;
+      }
       if (fromTabSwitch && browser) autoPipped.add(browser);
       if (shouldMirror(browser) && armMirror(browser, { wgp, videoData, browser })) {
         return true;
@@ -1494,7 +1537,7 @@
     if (Date.now() < requestCooldownUntil) {
       return false;
     }
-    if (!browser || browser.audioMuted) {
+    if (!browser || browser.audioMuted || blankTab(browser)) {
       return false;
     }
     requestCooldownUntil = Date.now() + REQUEST_COOLDOWN;

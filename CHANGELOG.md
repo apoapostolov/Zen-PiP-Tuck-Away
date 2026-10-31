@@ -5,6 +5,9 @@
 - Double-click the video in the sidebar media controls to go to the tab it plays
   in. A single click still plays or pauses, and now waits a moment to see whether
   a second click is coming.
+- Tabs that are still called New Tab are left alone: their video is not shown in
+  the sidebar and no player window opens for them. The same goes for an
+  `about:newtab`, `about:home` or `about:blank` address.
 
 ## 1.0.1 (2026-10-22)
 

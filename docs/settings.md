@@ -62,8 +62,10 @@ copied frame waits for the browser at a time, so a slow preview cannot build up
 a queue of pixel buffers.
 
 The preview offers play/pause and pop-out controls. Protected video, or video that cannot be shown
-in the preview, opens in the regular picture-in-picture player instead. Turn
-this option off to use a floating player while browsing other tabs.
+in the preview, opens in the regular picture-in-picture player instead. A tab that
+is still called New Tab, or any `about:newtab`, `about:home` or `about:blank` page,
+is skipped in both: nothing from it appears in the sidebar and no player opens for
+it. Turn this option off to use a floating player while browsing other tabs.
 
 **Pop the player out when leaving Zen** is off by default. Enable it to also
 request a floating player when you switch to another application with the
