@@ -1,0 +1,10 @@
+Zen-PiP-Tuck-Away
+Copyright (c) 2026 Apostol Apostolov
+
+The idea of tucking a picture-in-picture player into a screen edge comes from
+Zia (https://github.com/z1n-k/zia), Copyright (c) 2026 z1nk, MIT licensed. No
+source code is copied from it; see CREDITS.md for what the idea owes.
+
+The full MIT license text is in LICENSE. Keep that file canonical: added
+notices belong here, because an edited license text stops being machine
+identifiable to GitHub.
