@@ -1406,12 +1406,12 @@ const check = (name, actual, expected) => {
   check("the frost is only for a tucked strip that asked for it", css.includes(":root[pip-tucked][pip-frosted]:not([pip-peeking]) .player-holder"), true);
   check(
     "the controls go transparent while tucked, so the strip stays a hit target",
-    css.includes(":root[pip-tucked]:not([pip-peeking]) #controls{opacity:0 !important}"),
+    css.includes(":root[pip-tucked]:not([pip-peeking]):not([pip-fullscreen]) #controls{opacity:0 !important}"),
     true
   );
   check(
     "their buttons cannot be pressed blind",
-    css.includes(":root[pip-tucked]:not([pip-peeking]) #controls button") && css.includes("pointer-events:none !important"),
+    css.includes(":root[pip-tucked]:not([pip-peeking]):not([pip-fullscreen]) #controls button") && css.includes("pointer-events:none !important"),
     true
   );
   check("and the badge never swallows the press", css.includes("pointer-events:none"), true);
@@ -1775,6 +1775,30 @@ const check = (name, actual, expected) => {
   t.advance(500);
   t.tickIntervals();
   check("and it is still tucked afterwards", t.attrs.get("pip-tucked"), "right");
+}
+
+// 11b3. a fullscreen video is not frosted
+{
+  const t = mk({});
+  t.api.tuck("right");
+  t.flush();
+  check("tucked, so the strip is frosted", t.attrs.has("pip-frosted"), true);
+  t.doc.fullscreenElement = {};
+  t.docFire("fullscreenchange");
+  t.flush();
+  check("fullscreen is marked on the root", t.attrs.has("pip-fullscreen"), true);
+  check("and the tuck is still remembered for the way back", t.attrs.get("pip-tucked"), "right");
+  // The frost is a filter on the video itself, so a fullscreen player would be
+  // one blurred screen. The sheet has to clear it, and clear it hard.
+  check("the sheet clears the filter in fullscreen",
+    /:root\[pip-fullscreen\] \.player-holder \{\s*filter: none !important;/.test(SHEET_SOURCE), true);
+  check("and the strip's own chrome is left out of a full screen",
+    /:root\[pip-tucked\]:not\(\[pip-fullscreen\]\) #pip-tuck-away-badge/.test(SHEET_SOURCE), true);
+  t.doc.fullscreenElement = null;
+  t.docFire("fullscreenchange");
+  t.flush();
+  check("leaving fullscreen clears the mark", t.attrs.has("pip-fullscreen"), false);
+  check("and puts the player back in its strip", t.attrs.get("pip-tucked"), "right");
 }
 
 // 11d. a click on a real control is not the mod's business

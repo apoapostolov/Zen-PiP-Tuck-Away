@@ -25,6 +25,7 @@
   const PREF_RIGHT_CLICK = "pip-tuck-away.right-click";
   const PREF_FROST = "pip-tuck-away.frosted";
   const FROST_ATTR = "pip-frosted";
+  const FULLSCREEN_ATTR = "pip-fullscreen";
   const stringPref = (name, fallback) => {
     try {
       if (Services.prefs.getPrefType(name) === 0) {
@@ -1039,6 +1040,16 @@
     // A fullscreen round trip can rebuild the control bar, and the button has to
     // be in whatever bar exists afterwards.
     reflectButton();
+    // Fullscreen is a full look at the video, so the tucked look goes with it:
+    // the frost is a filter on the video itself and would blur the whole screen.
+    if (document.fullscreenElement) {
+      root.setAttribute(FULLSCREEN_ATTR, "");
+    } else {
+      root.removeAttribute(FULLSCREEN_ATTR);
+    }
+    // The tuck target is a band of the window, which a full screen has no use
+    // for, so the overlay is decided again with the new state in hand.
+    updateOverlay();
     if (document.fullscreenElement) {
       // Geometry means something else in fullscreen, so drop the reveal and do
       // not start another one until it ends.
@@ -2270,6 +2281,7 @@
     root.removeAttribute(FROST_ATTR);
     root.removeAttribute("pip-tucked");
     root.removeAttribute("pip-peeking");
+    root.removeAttribute(FULLSCREEN_ATTR);
     try {
       if (controlsTimer) {
         clearTimeout(controlsTimer);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3 (2026-11-19)
+
+- A tucked player that goes fullscreen is no longer frosted. The frost is a blur
+  on the video itself, so double-clicking a strip used to fill the whole screen
+  with a blurred picture. Fullscreen now clears it and shows the video as it is,
+  and the strip's own chrome stays out of the way until you come back.
+
 ## 1.0.2 (2026-10-31)
 
 - Double-click the video in the sidebar media controls to go to the tab it plays

@@ -243,7 +243,8 @@
 }
 
 
-:root[pip-tucked] #pip-tuck-away-badge {
+/* The badge is a handle for a strip, and there is no strip on a full screen. */
+:root[pip-tucked]:not([pip-fullscreen]) #pip-tuck-away-badge {
   display: flex;
 }
 
@@ -303,13 +304,13 @@
  * (player.js: onDblClick checks event.target.id == "controls"). A layer that
  * cannot be hit cannot be that target, and the strip would lose the gesture.
  * Its own buttons are made inert so nothing is pressed blind on a 24px strip. */
-:root[pip-tucked]:not([pip-peeking]) #controls {
+:root[pip-tucked]:not([pip-peeking]):not([pip-fullscreen]) #controls {
   opacity: 0 !important;
 }
 
-:root[pip-tucked]:not([pip-peeking]) #controls button,
-:root[pip-tucked]:not([pip-peeking]) #controls input,
-:root[pip-tucked]:not([pip-peeking]) #controls [role="button"] {
+:root[pip-tucked]:not([pip-peeking]):not([pip-fullscreen]) #controls button,
+:root[pip-tucked]:not([pip-peeking]):not([pip-fullscreen]) #controls input,
+:root[pip-tucked]:not([pip-peeking]):not([pip-fullscreen]) #controls [role="button"] {
   pointer-events: none !important;
 }
 
@@ -328,6 +329,13 @@
 /* A peek is a look at the video, so nothing may tint it, whatever state the
  * attributes happen to be in. */
 :root[pip-peeking] .player-holder {
+  filter: none !important;
+}
+
+/* Fullscreen is the whole screen asking for the video, so the frost goes too.
+ * The tuck state is still true while the window is fullscreen, which is why the
+ * frosted rule above would otherwise blur every pixel of it. */
+:root[pip-fullscreen] .player-holder {
   filter: none !important;
 }
 
