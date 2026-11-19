@@ -8,8 +8,8 @@ A Sine mod for Zen's picture-in-picture player.
 
 ![Zen Browser](https://img.shields.io/badge/Zen-Browser-f76f53?style=flat-square)
 ![Sine mod](https://img.shields.io/badge/Sine-mod-6e56cf?style=flat-square)
-[![Version: 1.0.3](https://img.shields.io/badge/version-1.0.3-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.3)
-[![Released: 2026-11-19](https://img.shields.io/badge/released-2026--11--19-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.3)
+[![Version: 1.0.3](https://img.shields.io/badge/version-1.0.4-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.4)
+[![Released: 2026-11-19](https://img.shields.io/badge/released-2026--11--19-informational?style=flat-square)](https://github.com/apoapostolov/Zen-PiP-Tuck-Away/releases/tag/v1.0.4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 </div>
@@ -33,9 +33,10 @@ with a narrow strip left on screen. Right-click again to bring it back.
   effect is on by default; turn it off to see the video clearly in the strip.
 - Enable **Peek while hovering the tucked strip** for a quick look. Hover to
   reveal the video, then move away to tuck it again. It's off by default.
-- Double-click the player for fullscreen. A tucked strip that goes fullscreen
-  comes back clear, with no frost over the picture, and returns to the strip
-  when you leave fullscreen.
+- Double-click the player for fullscreen. Fullscreen shows the video as it is:
+  no frost, and none of the dim that normally comes with the controls. A press
+  hands the controls over for a moment, and leaving fullscreen returns the
+  player to its strip.
 - Keep **Default PiP size** and **Default PiP location** on **Remember Last**,
   or choose a fixed size and opening position. A fixed location opens the
   player tucked there. YouTube moving to the next video keeps the player's place.

@@ -1801,6 +1801,53 @@ const check = (name, actual, expected) => {
   check("and puts the player back in its strip", t.attrs.get("pip-tucked"), "right");
 }
 
+// 11b4. a fullscreen video has no dim over it
+{
+  const t = mk({});
+  check("nothing hidden before fullscreen", t.controls.style.props.opacity ?? null, null);
+  t.doc.fullscreenElement = {};
+  t.docFire("fullscreenchange");
+  t.flush();
+  check("fullscreen marks the root", t.attrs.has("pip-fullscreen"), true);
+  check(
+    "the control layer, and the dim that lives in it, is switched off",
+    t.controls.style.props.opacity,
+    { value: "0", priority: "important" }
+  );
+}
+
+// 11b5. a press hands the controls over, and the dim goes with them
+{
+  const t = mk({});
+  t.doc.fullscreenElement = {};
+  t.docFire("fullscreenchange");
+  t.flush();
+  // Fired without draining the timer queue: the hold is one of those timers.
+  t.docFire("click", { button: 0, detail: 1, target: {} });
+  check("a press brings the layer back", t.controls.style.props.opacity ?? null, null);
+  check("with the controls handed over", t.attrs.has("pip-controls"), true);
+  t.runTimers();
+  check("the hold ends", t.attrs.has("pip-controls"), false);
+  check(
+    "and the dim goes again rather than staying on the whole picture",
+    t.controls.style.props.opacity,
+    { value: "0", priority: "important" }
+  );
+}
+
+// 11b6. leaving fullscreen gives the layer back
+{
+  const t = mk({});
+  t.doc.fullscreenElement = {};
+  t.docFire("fullscreenchange");
+  t.flush();
+  t.doc.fullscreenElement = null;
+  t.docFire("fullscreenchange");
+  t.flush();
+  check("the layer is back", t.controls.style.props.opacity ?? null, null);
+  check("and the player is not left bare", t.attrs.has("pip-tuck-away-bare"), false);
+}
+
 // 11d. a click on a real control is not the mod's business
 {
   const t = mk({});

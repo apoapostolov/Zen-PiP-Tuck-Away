@@ -973,7 +973,7 @@
         return;
       }
     }
-    if (peeked && bare) {
+    if (bare && (peeked || document.fullscreenElement)) {
       setBare(false);
       offerControls();
       setLayerInert(true);
@@ -1040,8 +1040,7 @@
     // A fullscreen round trip can rebuild the control bar, and the button has to
     // be in whatever bar exists afterwards.
     reflectButton();
-    // Fullscreen is a full look at the video, so the tucked look goes with it:
-    // the frost is a filter on the video itself and would blur the whole screen.
+    // Fullscreen is a full look at the video, so the tucked look goes with it.
     if (document.fullscreenElement) {
       root.setAttribute(FULLSCREEN_ATTR, "");
     } else {
@@ -1052,8 +1051,16 @@
     updateOverlay();
     if (document.fullscreenElement) {
       // Geometry means something else in fullscreen, so drop the reveal and do
-      // not start another one until it ends.
+      // not start another one until it ends. The reveal is what owns the bare
+      // look, so it has to be let go of before the screen asks for it.
       stopPeek();
+      // The frost is a filter on the video itself and would blur the whole
+      // screen, and the dim that comes with the controls is part of that layer
+      // rather than a shadow of ours. Both go: the picture gets the screen, and
+      // a press hands the controls, with their dim, back for a moment.
+      setBare(true);
+    } else if (bare) {
+      setBare(false);
     }
   };
 
@@ -1775,11 +1782,14 @@
       // already spent the pointer-enter that would have shown them. A pointer
       // still on the player is a person still looking at the controls, so the
       // hand-over is renewed instead of expiring under them.
-      if (peeked || hovering()) {
+      if (!document.fullscreenElement && (peeked || hovering())) {
         offerControls();
         return;
       }
       endControlsHold();
+      if (document.fullscreenElement) {
+        setBare(true);
+      }
     }, CONTROLS_HOLD);
   };
 

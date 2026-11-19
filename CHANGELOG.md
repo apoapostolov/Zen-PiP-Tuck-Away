@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4 (2026-11-19)
+
+- A fullscreen player no longer carries the dim that comes with the controls. The
+  control layer is where that dim lives, so fullscreen switches the layer off and
+  gives the picture the screen. A press brings the controls, and their dim, back
+  for a few seconds, and leaving fullscreen restores the layer.
+
 ## 1.0.3 (2026-11-19)
 
 - A tucked player that goes fullscreen is no longer frosted. The frost is a blur
